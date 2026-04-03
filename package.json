@@ -8,21 +8,26 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx --watch src/index.ts",
+    "lint": "eslint src/",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check": "tsc --noEmit && eslint src/ && vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^16.4.0",
     "express": "^4.21.0",
     "gray-matter": "^4.0.3",
-    "zod": "^4.3.0",
-    "dotenv": "^16.4.0"
+    "zod": "^4.3.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
-    "typescript": "^5.7.0",
+    "eslint": "^10.2.0",
     "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.58.0",
     "vitest": "^3.0.0"
   },
   "engines": {

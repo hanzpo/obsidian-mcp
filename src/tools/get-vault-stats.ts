@@ -1,5 +1,4 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import * as z from "zod/v4";
 import type { Services } from "../server.js";
 
 export function registerGetVaultStats(server: McpServer, services: Services) {

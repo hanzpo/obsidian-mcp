@@ -11,14 +11,15 @@ const config = loadConfig();
 const app = createMcpExpressApp({ host: config.host });
 app.use(createAuthMiddleware(config.apiKey));
 
-const transports: Record<string, StreamableHTTPServerTransport> = {};
+const transports = new Map<string, StreamableHTTPServerTransport>();
 
 app.post("/mcp", async (req, res) => {
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
   try {
-    if (sessionId && transports[sessionId]) {
-      await transports[sessionId].handleRequest(req, res, req.body);
+    const existing = sessionId ? transports.get(sessionId) : undefined;
+    if (existing) {
+      await existing.handleRequest(req, res, req.body);
       return;
     }
 
@@ -26,14 +27,14 @@ app.post("/mcp", async (req, res) => {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
-          transports[id] = transport;
+          transports.set(id, transport);
         },
       });
 
       transport.onclose = () => {
         const id = transport.sessionId;
-        if (id && transports[id]) {
-          delete transports[id];
+        if (id) {
+          transports.delete(id);
         }
       };
 
@@ -62,20 +63,22 @@ app.post("/mcp", async (req, res) => {
 
 app.get("/mcp", async (req, res) => {
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  if (!sessionId || !transports[sessionId]) {
+  const transport = sessionId ? transports.get(sessionId) : undefined;
+  if (!transport) {
     res.status(400).send("Invalid or missing session ID");
     return;
   }
-  await transports[sessionId].handleRequest(req, res);
+  await transport.handleRequest(req, res);
 });
 
 app.delete("/mcp", async (req, res) => {
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  if (!sessionId || !transports[sessionId]) {
+  const transport = sessionId ? transports.get(sessionId) : undefined;
+  if (!transport) {
     res.status(400).send("Invalid or missing session ID");
     return;
   }
-  await transports[sessionId].handleRequest(req, res);
+  await transport.handleRequest(req, res);
 });
 
 app.listen(config.port, config.host, () => {
@@ -86,9 +89,9 @@ app.listen(config.port, config.host, () => {
 });
 
 process.on("SIGINT", async () => {
-  for (const id of Object.keys(transports)) {
-    await transports[id].close();
-    delete transports[id];
+  for (const [id, transport] of transports) {
+    await transport.close();
+    transports.delete(id);
   }
   process.exit(0);
 });

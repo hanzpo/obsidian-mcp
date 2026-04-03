@@ -21,13 +21,12 @@ export class FrontmatterService {
     removeKeys?: string[]
   ): string {
     const { data, content } = matter(raw);
-    Object.assign(data, updates);
-    if (removeKeys) {
-      for (const key of removeKeys) {
-        delete data[key];
-      }
-    }
-    return matter.stringify(content, data);
+    const merged = { ...data, ...updates };
+    const removeSet = new Set(removeKeys);
+    const filtered = Object.fromEntries(
+      Object.entries(merged).filter(([k]) => !removeSet.has(k))
+    );
+    return matter.stringify(content, filtered);
   }
 
   getTags(raw: string): string[] {
