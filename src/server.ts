@@ -14,18 +14,20 @@ export interface Services {
   wikilinks: WikilinkService;
 }
 
-export function createMcpServer(config: Config): McpServer {
-  const server = new McpServer({
-    name: "obsidian-mcp",
-    version: "0.1.0",
-  });
-
-  const services: Services = {
+export function createServices(config: Config): Services {
+  return {
     fs: new FileSystemService(config.vaultPath),
     frontmatter: new FrontmatterService(),
     search: new SearchService(config.vaultPath),
     wikilinks: new WikilinkService(config.vaultPath),
   };
+}
+
+export function createMcpServer(services: Services): McpServer {
+  const server = new McpServer({
+    name: "obsidian-mcp",
+    version: "0.1.0",
+  });
 
   registerAllResources(server, services);
   registerAllTools(server, services);

@@ -6,11 +6,52 @@ export interface SearchResult {
   excerpt: string;
 }
 
+interface CachedDoc {
+  path: string;
+  content: string;
+  lower: string;
+  words: string[];
+  termFreqs: Map<string, number>;
+}
+
+const CACHE_TTL_MS = 30_000;
+
 export class SearchService {
   private fs: FileSystemService;
+  private cache: CachedDoc[] | null = null;
+  private cacheTime = 0;
 
   constructor(vaultPath: string) {
     this.fs = new FileSystemService(vaultPath);
+  }
+
+  private async loadDocs(): Promise<CachedDoc[]> {
+    const now = Date.now();
+    if (this.cache && now - this.cacheTime < CACHE_TTL_MS) {
+      return this.cache;
+    }
+
+    const files = await this.fs.getAllMarkdownFiles();
+    const docs: CachedDoc[] = [];
+
+    for (const filePath of files) {
+      try {
+        const content = await this.fs.readFile(filePath);
+        const lower = content.toLowerCase();
+        const words = lower.split(/\W+/).filter((w) => w.length > 0);
+        const termFreqs = new Map<string, number>();
+        for (const word of words) {
+          termFreqs.set(word, (termFreqs.get(word) || 0) + 1);
+        }
+        docs.push({ path: filePath, content, lower, words, termFreqs });
+      } catch {
+        // Skip unreadable files
+      }
+    }
+
+    this.cache = docs;
+    this.cacheTime = now;
+    return docs;
   }
 
   async search(
@@ -24,63 +65,43 @@ export class SearchService {
       .filter((t) => t.length > 0);
     if (terms.length === 0) return [];
 
-    let files = await this.fs.getAllMarkdownFiles();
+    let docs = await this.loadDocs();
     if (scopePath) {
-      files = files.filter((f) => f.startsWith(scopePath));
+      docs = docs.filter((d) => d.path.startsWith(scopePath));
     }
 
-    const docs: { path: string; content: string; termFreqs: Map<string, number> }[] = [];
-    let totalLength = 0;
-
-    // Document frequencies for each term
     const df = new Map<string, number>();
+    const matched: CachedDoc[] = [];
 
-    for (const filePath of files) {
-      try {
-        const content = await this.fs.readFile(filePath);
-        const lower = content.toLowerCase();
-        const words = lower.split(/\W+/).filter((w) => w.length > 0);
-        const termFreqs = new Map<string, number>();
+    for (const doc of docs) {
+      if (!terms.every((t) => doc.lower.includes(t))) continue;
 
-        for (const word of words) {
-          termFreqs.set(word, (termFreqs.get(word) || 0) + 1);
+      for (const term of terms) {
+        if (doc.termFreqs.has(term)) {
+          df.set(term, (df.get(term) || 0) + 1);
         }
-
-        // Check all query terms appear in content (AND logic)
-        const allMatch = terms.every(
-          (t) => lower.includes(t)
-        );
-        if (!allMatch) continue;
-
-        for (const term of terms) {
-          if (termFreqs.has(term)) {
-            df.set(term, (df.get(term) || 0) + 1);
-          }
-        }
-
-        docs.push({ path: filePath, content, termFreqs });
-        totalLength += words.length;
-      } catch {
-        // Skip unreadable files
       }
+      matched.push(doc);
     }
 
-    if (docs.length === 0) return [];
+    if (matched.length === 0) return [];
 
-    const avgDl = totalLength / docs.length;
-    const N = docs.length;
+    const avgDl =
+      matched.reduce((sum, d) => sum + d.words.length, 0) / matched.length;
+    const N = matched.length;
     const k1 = 1.2;
     const b = 0.75;
 
-    const scored: SearchResult[] = docs.map((doc) => {
-      const dl = Array.from(doc.termFreqs.values()).reduce((a, b) => a + b, 0);
+    const scored: SearchResult[] = matched.map((doc) => {
+      const dl = doc.words.length;
       let score = 0;
 
       for (const term of terms) {
         const tf = doc.termFreqs.get(term) || 0;
         const docFreq = df.get(term) || 0;
         const idf = Math.log((N - docFreq + 0.5) / (docFreq + 0.5) + 1);
-        score += idf * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (dl / avgDl))));
+        score +=
+          idf * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (dl / avgDl))));
       }
 
       const excerpt = this.extractExcerpt(doc.content, terms[0]);

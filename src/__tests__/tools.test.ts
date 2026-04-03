@@ -6,7 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Config } from "../config.js";
-import { createMcpServer } from "../server.js";
+import { createMcpServer, createServices } from "../server.js";
 
 let tmpDir: string;
 let server: McpServer;
@@ -51,7 +51,7 @@ Working on [[Hello World]] integration.`
     host: "127.0.0.1",
   };
 
-  server = createMcpServer(config);
+  server = createMcpServer(createServices(config));
   client = new Client({ name: "test-client", version: "1.0.0" });
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

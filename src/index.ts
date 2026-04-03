@@ -4,9 +4,10 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { loadConfig } from "./config.js";
 import { createAuthMiddleware } from "./auth.js";
-import { createMcpServer } from "./server.js";
+import { createMcpServer, createServices } from "./server.js";
 
 const config = loadConfig();
+const services = createServices(config);
 
 const app = createMcpExpressApp({ host: config.host });
 app.use(createAuthMiddleware(config.apiKey));
@@ -38,7 +39,7 @@ app.post("/mcp", async (req, res) => {
         }
       };
 
-      const server = createMcpServer(config);
+      const server = createMcpServer(services);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
       return;
