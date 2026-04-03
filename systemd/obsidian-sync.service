@@ -6,6 +6,7 @@ PartOf=obsidian-mcp.target
 [Service]
 Type=simple
 EnvironmentFile=/root/obsidian-mcp/.env
+Environment=PATH=/root/.nvm/versions/node/v24.14.1/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/root/.local/share/pnpm/ob sync --continuous --path ${VAULT_PATH}
 Restart=on-failure
 RestartSec=5
