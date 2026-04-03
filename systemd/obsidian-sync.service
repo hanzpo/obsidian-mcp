@@ -5,8 +5,8 @@ PartOf=obsidian-mcp.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/obsidian-mcp/vault
-ExecStart=/usr/bin/ob sync --continuous
+WorkingDirectory=/root/obsidian-mcp/vault
+ExecStart=/root/.local/share/pnpm/ob sync --continuous
 Restart=on-failure
 RestartSec=5
 
