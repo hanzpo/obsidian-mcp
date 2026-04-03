@@ -1,0 +1,15 @@
+[Unit]
+Description=Obsidian MCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=obsidian
+WorkingDirectory=/opt/obsidian-mcp
+ExecStart=/usr/bin/node /opt/obsidian-mcp/dist/index.js
+EnvironmentFile=/opt/obsidian-mcp/.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

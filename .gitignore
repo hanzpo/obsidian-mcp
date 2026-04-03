@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+*.tgz
+
+# Caddy data (if running locally)
+caddy_data/
+caddy_config/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
