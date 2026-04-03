@@ -55,7 +55,7 @@ cd ..
 ### 3. Generate API key and configure
 
 ```bash
-./keygen.sh
+make keygen
 ```
 
 This creates `.env` with a random API key and prints the client config. Edit `.env` to set your vault path and domain:
@@ -66,18 +66,11 @@ VAULT_PATH=/opt/obsidian-mcp/vault
 API_KEY=<generated>
 ```
 
-### 4. Install systemd services
+### 4. Install and start
 
 ```bash
-cp systemd/* /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable obsidian-mcp.target
-```
-
-### 5. Start everything
-
-```bash
-systemctl start obsidian-mcp.target
+make install
+make start
 ```
 
 This starts two services via one command:
@@ -129,34 +122,18 @@ The `keygen.sh` script prints this with your actual key.
 
 ## Operations
 
-**Start/stop everything:**
-
-```bash
-systemctl start obsidian-mcp.target
-systemctl stop obsidian-mcp.target
-```
-
-**Rotate API key:**
-
-```bash
-./keygen.sh
-docker compose restart mcp
-```
-
-**View logs:**
-
-```bash
-journalctl -u obsidian-sync -f       # sync logs
-docker compose logs -f mcp           # MCP server logs
-docker compose logs -f caddy         # Caddy logs
-```
-
-**Update:**
-
-```bash
-git pull
-systemctl restart obsidian-mcp.target
-```
+| Command | What it does |
+|---------|-------------|
+| `make start` | Start sync + MCP server + Caddy |
+| `make stop` | Stop everything |
+| `make restart` | Restart everything |
+| `make status` | Check service status |
+| `make logs` | Tail all logs |
+| `make logs-sync` | Tail sync logs |
+| `make logs-mcp` | Tail MCP server logs |
+| `make logs-caddy` | Tail Caddy logs |
+| `make keygen` | Generate/rotate API key |
+| `make update` | Pull latest and restart |
 
 ## Development
 
