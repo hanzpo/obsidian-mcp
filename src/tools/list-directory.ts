@@ -25,7 +25,7 @@ export function registerListDirectory(server: McpServer, services: Services) {
     async ({ path, recursive }) => {
       const entries = await services.fs.listDirectory(path, recursive);
       const text = entries
-        .map((e) => `${e.type === "directory" ? "📁" : "📄"} ${e.path}`)
+        .map((e) => `[${e.type === "directory" ? "dir" : "file"}] ${e.path}`)
         .join("\n");
       return {
         content: [

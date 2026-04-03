@@ -4,6 +4,7 @@ import { FileSystemService } from "./services/filesystem.js";
 import { FrontmatterService } from "./services/frontmatter.js";
 import { SearchService } from "./services/search.js";
 import { WikilinkService } from "./services/wikilinks.js";
+import { registerAllResources } from "./resources/index.js";
 import { registerAllTools } from "./tools/index.js";
 
 export interface Services {
@@ -26,6 +27,7 @@ export function createMcpServer(config: Config): McpServer {
     wikilinks: new WikilinkService(config.vaultPath),
   };
 
+  registerAllResources(server, services);
   registerAllTools(server, services);
 
   return server;
