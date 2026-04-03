@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KEY=$(openssl rand -base64 32 | tr -d '=/+' | head -c 48)
+KEY=$(openssl rand -hex 32)
 
 echo "Generated API key:"
 echo ""
