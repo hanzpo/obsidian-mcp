@@ -11,7 +11,7 @@ AI Agent (Claude, Cursor, etc.)
                             |
                         vault files on disk
                             |
-                        ob sync --continuous
+                        ob sync --continuous  (systemd)
                             |
                         Obsidian Sync <-> your devices
 ```
@@ -22,15 +22,14 @@ AI Agent (Claude, Cursor, etc.)
 
 - A server (e.g. Hetzner VPS) with Docker installed
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
-- Node.js 22+ (for initial obsidian-headless setup)
-- A domain pointed at your server (e.g. `obsidian.hanzpo.com`)
+- Node.js 22+ (for obsidian-headless)
+- A domain pointed at your server (A record, DNS only / grey cloud if Cloudflare)
 
-### 1. Clone and build
+### 1. Clone
 
 ```bash
-git clone https://github.com/hanzpo/obsidian-mcp.git
-cd obsidian-mcp
-npm ci && npm run build
+git clone https://github.com/hanzpo/obsidian-mcp.git /opt/obsidian-mcp
+cd /opt/obsidian-mcp
 ```
 
 ### 2. Set up Obsidian Sync
@@ -42,14 +41,14 @@ npm install -g obsidian-headless
 ob login
 ```
 
-Create a directory for your vault and set up sync:
+Create the vault directory and set up sync:
 
 ```bash
 mkdir -p vault
 cd vault
 ob sync-list-remote          # find your vault name
 ob sync-setup --vault "My Vault"
-ob sync                      # do an initial sync to pull files
+ob sync                      # initial sync to pull files
 cd ..
 ```
 
@@ -59,33 +58,38 @@ cd ..
 ./keygen.sh
 ```
 
-This creates a `.env` file with a random API key and prints the client config you'll need later. Edit `.env` to set your vault path and domain:
-
-```bash
-vim .env
-```
+This creates `.env` with a random API key and prints the client config. Edit `.env` to set your vault path and domain:
 
 ```
 DOMAIN=obsidian.hanzpo.com
-VAULT_PATH=/absolute/path/to/vault
+VAULT_PATH=/opt/obsidian-mcp/vault
 API_KEY=<generated>
 ```
 
-### 4. Start everything
+### 4. Install systemd services
 
 ```bash
-docker compose up -d
+cp systemd/* /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable obsidian-mcp.target
 ```
 
-This starts three services:
+### 5. Start everything
 
-| Service | What it does |
-|---------|-------------|
-| `sync` | Runs `ob sync --continuous` to keep the vault in sync |
-| `mcp` | The MCP server (port 3456, internal only) |
-| `caddy` | Reverse proxy with automatic HTTPS |
+```bash
+systemctl start obsidian-mcp.target
+```
 
-### 5. Configure your AI client
+This starts two services via one command:
+
+| Unit | What it does |
+|------|-------------|
+| `obsidian-sync.service` | Runs `ob sync --continuous` on the host |
+| `obsidian-mcp.service` | Runs `docker compose up` (MCP server + Caddy) |
+
+Both are grouped under `obsidian-mcp.target`. Starting/stopping the target controls everything.
+
+### 6. Configure your AI client
 
 Add to your MCP client config (Claude Desktop, Claude Code, Cursor, etc.):
 
@@ -103,7 +107,7 @@ Add to your MCP client config (Claude Desktop, Claude Code, Cursor, etc.):
 }
 ```
 
-The `keygen.sh` script prints this config with your actual key.
+The `keygen.sh` script prints this with your actual key.
 
 ## Tools
 
@@ -125,6 +129,13 @@ The `keygen.sh` script prints this config with your actual key.
 
 ## Operations
 
+**Start/stop everything:**
+
+```bash
+systemctl start obsidian-mcp.target
+systemctl stop obsidian-mcp.target
+```
+
 **Rotate API key:**
 
 ```bash
@@ -132,34 +143,26 @@ The `keygen.sh` script prints this config with your actual key.
 docker compose restart mcp
 ```
 
-**Change domain:**
-
-Edit `DOMAIN` in `.env`, then:
-
-```bash
-docker compose restart caddy
-```
-
 **View logs:**
 
 ```bash
-docker compose logs -f        # all services
-docker compose logs -f sync   # just sync
-docker compose logs -f mcp    # just MCP server
+journalctl -u obsidian-sync -f       # sync logs
+docker compose logs -f mcp           # MCP server logs
+docker compose logs -f caddy         # Caddy logs
 ```
 
 **Update:**
 
 ```bash
 git pull
-npm ci && npm run build
-docker compose up -d --build
+systemctl restart obsidian-mcp.target
 ```
 
 ## Development
 
 ```bash
+npm ci
 npm run dev          # start with hot reload
 npm test             # run tests
-npm run build        # compile TypeScript
+npm run check        # tsc + eslint + tests
 ```

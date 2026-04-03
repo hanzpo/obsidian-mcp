@@ -1,13 +1,4 @@
 services:
-  sync:
-    build:
-      context: .
-      dockerfile: sync.Dockerfile
-    volumes:
-      - ${VAULT_PATH:-./vault}:/vault:rw
-      - ob_config:/root/.config/obsidian-headless
-    restart: unless-stopped
-
   mcp:
     build: .
     expose:
@@ -19,8 +10,6 @@ services:
       - API_KEY=${API_KEY}
       - PORT=3456
       - HOST=0.0.0.0
-    depends_on:
-      - sync
     restart: unless-stopped
 
   caddy:
@@ -40,6 +29,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  ob_config:
   caddy_data:
   caddy_config:

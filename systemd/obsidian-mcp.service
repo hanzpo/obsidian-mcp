@@ -1,15 +1,16 @@
 [Unit]
-Description=Obsidian MCP Server
-After=network.target
+Description=Obsidian MCP Server (Docker Compose)
+After=network.target obsidian-sync.service
+Requires=obsidian-sync.service
+PartOf=obsidian-mcp.target
 
 [Service]
 Type=simple
-User=obsidian
 WorkingDirectory=/opt/obsidian-mcp
-ExecStart=/usr/bin/node /opt/obsidian-mcp/dist/index.js
-EnvironmentFile=/opt/obsidian-mcp/.env
+ExecStart=/usr/bin/docker compose up --build
+ExecStop=/usr/bin/docker compose down
 Restart=on-failure
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=obsidian-mcp.target
