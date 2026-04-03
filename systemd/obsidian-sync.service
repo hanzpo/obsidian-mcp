@@ -5,9 +5,8 @@ PartOf=obsidian-mcp.target
 
 [Service]
 Type=simple
+ExecStart=/bin/bash -c 'cd "$VAULT_PATH" && exec /root/.local/share/pnpm/ob sync --continuous'
 EnvironmentFile=/root/obsidian-mcp/.env
-WorkingDirectory=${VAULT_PATH}
-ExecStart=/root/.local/share/pnpm/ob sync --continuous
 Restart=on-failure
 RestartSec=5
 
