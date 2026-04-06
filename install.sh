@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reopen stdin from terminal so interactive prompts work when piped (curl | bash)
-if [ ! -t 0 ]; then
-  exec </dev/tty
-fi
-
 REPO="https://github.com/hanzpo/obsidian-mcp.git"
 INSTALL_DIR="$(pwd)/obsidian-mcp"
 OS="$(uname -s)"
@@ -35,7 +30,11 @@ prompt_install_mode() {
   echo ""
 
   local choice
-  read -rp "Mode [1]: " choice
+  if [ -t 0 ]; then
+    read -rp "Mode [1]: " choice
+  else
+    read -rp "Mode [1]: " choice </dev/tty
+  fi
   case "${choice:-1}" in
     1) MODE="quickstart" ;;
     2) MODE="production" ;;
