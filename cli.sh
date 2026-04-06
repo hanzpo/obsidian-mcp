@@ -10,7 +10,7 @@ ARCHIVE_URL="https://github.com/hanzpo/obsidian-mcp/archive/refs/heads/main.tar.
 print_help() {
   echo "obsidian-mcp commands"
   echo ""
-  echo "  npm run setup       Interactive setup. Choose quickstart or production."
+  echo "  npm run setup       Interactive setup. Choose local or production."
   echo "  npm run status      Show status for the active mode"
   echo "  npm run logs        Tail logs for the active mode"
   echo "  npm run stop        Stop the active mode"
@@ -55,14 +55,14 @@ stop_pid_file() {
   rm -f "$pid_file"
 }
 
-quickstart_stop() {
+local_stop() {
   for pid_file in "$RUNTIME_DIR/pids"/*.pid; do
     [ -f "$pid_file" ] || continue
     stop_pid_file "$pid_file"
   done
 }
 
-quickstart_status() {
+local_status() {
   local found=0
   for pid_file in "$RUNTIME_DIR/pids"/*.pid; do
     [ -f "$pid_file" ] || continue
@@ -79,14 +79,14 @@ quickstart_status() {
   done
 
   if [ "$found" -eq 0 ]; then
-    echo "Quickstart is not running."
+    echo "Local mode is not running."
   fi
 }
 
-quickstart_logs() {
+local_logs() {
   local logs_dir="$RUNTIME_DIR/logs"
   if [ ! -d "$logs_dir" ] || ! find "$logs_dir" -maxdepth 1 -name '*.log' -print -quit 2>/dev/null | grep -q .; then
-    echo "No quickstart logs found yet. Run npm run setup first, or wait for the background processes to write logs." >&2
+    echo "No local-mode logs found yet. Run npm run setup first, or wait for the background processes to write logs." >&2
     exit 1
   fi
   tail -f "$logs_dir"/*.log
@@ -211,7 +211,8 @@ detect_active_mode() {
     local mode
     mode=$(tr -d '\r\n' < "$MODE_FILE")
     case "$mode" in
-      quickstart|production)
+      local|quickstart|production)
+        [ "$mode" = "quickstart" ] && mode="local"
         printf '%s\n' "$mode"
         return 0
         ;;
@@ -219,7 +220,7 @@ detect_active_mode() {
   fi
 
   if [ -d "$RUNTIME_DIR/pids" ] && find "$RUNTIME_DIR/pids" -name '*.pid' -print -quit 2>/dev/null | grep -q .; then
-    printf '%s\n' quickstart
+    printf '%s\n' local
     return 0
   fi
 
@@ -258,8 +259,8 @@ status_cmd() {
   local mode
   mode="$(require_active_mode)"
   echo "Active mode: $mode"
-  if [ "$mode" = "quickstart" ]; then
-    quickstart_status
+  if [ "$mode" = "local" ]; then
+    local_status
   else
     prod_status
   fi
@@ -269,8 +270,8 @@ logs_cmd() {
   local mode
   mode="$(require_active_mode)"
   echo "Active mode: $mode"
-  if [ "$mode" = "quickstart" ]; then
-    quickstart_logs
+  if [ "$mode" = "local" ]; then
+    local_logs
   else
     prod_logs
   fi
@@ -280,8 +281,8 @@ stop_cmd() {
   local mode
   mode="$(require_active_mode)"
   echo "Active mode: $mode"
-  if [ "$mode" = "quickstart" ]; then
-    quickstart_stop
+  if [ "$mode" = "local" ]; then
+    local_stop
   else
     prod_down
   fi
@@ -291,8 +292,8 @@ restart_cmd() {
   local mode
   mode="$(require_active_mode)"
   echo "Active mode: $mode"
-  if [ "$mode" = "quickstart" ]; then
-    PATH="$HOME/.local/bin:$PATH" ./setup.sh --quickstart
+  if [ "$mode" = "local" ]; then
+    PATH="$HOME/.local/bin:$PATH" ./setup.sh --local
   else
     prod_restart
   fi
@@ -303,8 +304,8 @@ update_cmd() {
   mode="$(require_active_mode)"
   echo "Active mode: $mode"
   update_repo_files
-  if [ "$mode" = "quickstart" ]; then
-    PATH="$HOME/.local/bin:$PATH" ./setup.sh --quickstart
+  if [ "$mode" = "local" ]; then
+    PATH="$HOME/.local/bin:$PATH" ./setup.sh --local
   else
     sudo ./setup.sh --production
   fi

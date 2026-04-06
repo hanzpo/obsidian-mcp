@@ -37,12 +37,12 @@ stop_pid_file() {
   rm -f "$pid_file"
 }
 
-stop_quickstart_processes() {
+stop_local_processes() {
   if [ ! -d "$RUNTIME_DIR/pids" ]; then
     return
   fi
 
-  info "Stopping quickstart background processes..."
+  info "Stopping local-mode background processes..."
   for pid_file in "$RUNTIME_DIR/pids"/*.pid; do
     [ -f "$pid_file" ] || continue
     stop_pid_file "$pid_file"
@@ -109,7 +109,7 @@ print_summary() {
   echo "  ======================"
   echo ""
   echo "  This will remove:"
-  echo "  - quickstart background processes started by this install"
+  echo "  - local-mode background processes started by this install"
   echo "  - production services installed by obsidian-mcp on this machine"
   echo "  - generated local config in this install: .env and .obsidian-mcp/"
   echo ""
@@ -117,6 +117,7 @@ print_summary() {
   echo "  - your real Obsidian desktop vault folders"
   echo "  - synced vault contents under this install's vaults/ directory"
   echo "  - ~/.obsidian-headless auth or sync state"
+  echo "  - Cloudflare Tunnel resources such as named tunnels or DNS routes"
   echo "  - your remote Obsidian Sync state"
   echo "  - installed dependencies such as Node.js, Caddy, cloudflared, or obsidian-headless"
   echo ""
@@ -137,7 +138,7 @@ print_summary
 require_root_for_production_cleanup
 confirm_uninstall
 
-stop_quickstart_processes
+stop_local_processes
 if [ "$OS" = "Darwin" ]; then
   remove_production_services_macos
 else
@@ -147,5 +148,5 @@ remove_local_runtime
 
 echo ""
 success "obsidian-mcp uninstall complete."
-echo "    Preserved: desktop vaults, synced vault contents, ~/.obsidian-headless, and remote Sync state."
-echo "    If you also want to remove synced vault mirrors or headless auth state, do that manually."
+echo "    Preserved: desktop vaults, synced vault contents, ~/.obsidian-headless, Cloudflare Tunnel resources, and remote Sync state."
+echo "    If you also want to remove synced vault mirrors, headless auth state, or Cloudflare tunnel resources, do that manually."

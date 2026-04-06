@@ -19,15 +19,23 @@ MODE=""
 VAULT_MARKER=".obsidian-mcp-vault"
 VAULT_SOURCE="headless"
 VAULT_MAP_FILE="$RUNTIME_DIR/vault-map.json"
+LOCAL_TUNNEL_ENV_FILE="$RUNTIME_DIR/local-tunnel.env"
+LOCAL_TUNNEL_CONFIG_FILE="$RUNTIME_DIR/cloudflared-config.yml"
 DESKTOP_CONFIG_PATH=""
 DESKTOP_VAULT_LINES=()
+LOCAL_TUNNEL_MODE=""
+PUBLIC_HOSTNAME=""
+TUNNEL_NAME=""
+TUNNEL_UUID=""
+TUNNEL_CREDENTIALS_FILE=""
+LOCAL_URL=""
 
 case "${1:-}" in
   "")
     MODE=""
     ;;
-  --quickstart)
-    MODE="quickstart"
+  --local|--quickstart)
+    MODE="local"
     ;;
   --production)
     MODE="production"
@@ -50,10 +58,10 @@ RESET="\033[0m"
 prompt_setup_mode() {
   echo "Choose setup mode:"
   echo ""
-  echo "  1) Quickstart"
+  echo "  1) Local"
   echo "     For your own laptop or desktop running the Obsidian app."
-  echo "     Uses the real local vault folders directly when available."
-  echo "     Fastest path, but the public URL is temporary."
+  echo "     Uses the real local vault folders directly."
+  echo "     Creates a persistent Cloudflare Tunnel hostname."
   echo ""
   echo "  2) Production"
   echo "     For a separate self-hosted server or always-on machine."
@@ -64,7 +72,7 @@ prompt_setup_mode() {
   local choice
   read -rp "Select mode [1]: " choice
   case "${choice:-1}" in
-    1) MODE="quickstart" ;;
+    1) MODE="local" ;;
     2) MODE="production" ;;
     *)
       error "Invalid choice. Enter 1 or 2."
@@ -206,24 +214,24 @@ determine_vault_source() {
     if [ "$MODE" = "production" ]; then
       error "Local Obsidian desktop vaults were detected on this machine."
       echo "    Production mode uses obsidian-headless, which should not run alongside desktop Sync on the same device."
-      echo "    Use quickstart on this machine, or run production on a separate server or always-on machine."
+      echo "    Use local mode on this machine, or run production on a separate server or always-on machine."
       exit 1
     fi
 
     VAULT_SOURCE="desktop"
     info "Detected local Obsidian vaults."
-    echo "    Quickstart will use the desktop vault folders directly on this machine."
+    echo "    Local mode will use the desktop vault folders directly on this machine."
     echo "    obsidian-headless is blocked here to avoid sync conflicts with the Obsidian app."
     echo ""
     return
   fi
 
   VAULT_SOURCE="headless"
-  if [ "$MODE" = "quickstart" ]; then
-    info "No local Obsidian vaults detected."
-    echo "    Quickstart will use obsidian-headless and Obsidian Sync on this machine."
-    echo "    This is the server-style path."
-    echo ""
+  if [ "$MODE" = "local" ]; then
+    error "No local Obsidian desktop vaults were detected on this machine."
+    echo "    Local mode requires the Obsidian app and at least one local vault."
+    echo "    Use production on a separate server-style machine instead."
+    exit 1
   fi
 }
 
@@ -275,8 +283,8 @@ ensure_mode_permissions() {
     prompt_setup_mode
   fi
 
-  if [ "$MODE" = "quickstart" ] && [ "$(id -u)" -eq 0 ]; then
-    error "Quickstart should be run as your normal user so Obsidian login and background processes live in your account."
+  if [ "$MODE" = "local" ] && [ "$(id -u)" -eq 0 ]; then
+    error "Local mode should be run as your normal user so desktop vault access and Cloudflare login live in your account."
     echo "    Re-run without sudo:"
     echo "    npm run setup"
     exit 1
@@ -300,8 +308,8 @@ require_prerequisites() {
   check_command openssl
   check_command curl
 
-  if [ "$MODE" = "quickstart" ]; then
-    check_command cloudflared "Install with ./install.sh quickstart or from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+  if [ "$MODE" = "local" ]; then
+    check_command cloudflared "Install with ./install.sh local or from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
   else
     check_command caddy "https://caddyserver.com/docs/install"
   fi
@@ -386,6 +394,158 @@ ensure_obsidian_login() {
     ob login
   fi
   echo ""
+}
+
+load_local_tunnel_settings() {
+  [ -f "$LOCAL_TUNNEL_ENV_FILE" ] || return
+
+  LOCAL_TUNNEL_MODE=$(grep '^LOCAL_TUNNEL_MODE=' "$LOCAL_TUNNEL_ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
+  PUBLIC_HOSTNAME=$(grep '^PUBLIC_HOSTNAME=' "$LOCAL_TUNNEL_ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
+  TUNNEL_NAME=$(grep '^TUNNEL_NAME=' "$LOCAL_TUNNEL_ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
+  TUNNEL_UUID=$(grep '^TUNNEL_UUID=' "$LOCAL_TUNNEL_ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
+  TUNNEL_CREDENTIALS_FILE=$(grep '^TUNNEL_CREDENTIALS_FILE=' "$LOCAL_TUNNEL_ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
+}
+
+write_local_tunnel_settings() {
+  mkdir -p "$RUNTIME_DIR"
+  cat > "$LOCAL_TUNNEL_ENV_FILE" <<EOF
+LOCAL_TUNNEL_MODE=$LOCAL_TUNNEL_MODE
+PUBLIC_HOSTNAME=$PUBLIC_HOSTNAME
+TUNNEL_NAME=$TUNNEL_NAME
+TUNNEL_UUID=$TUNNEL_UUID
+TUNNEL_CREDENTIALS_FILE=$TUNNEL_CREDENTIALS_FILE
+EOF
+}
+
+prompt_local_tunnel_mode() {
+  load_local_tunnel_settings
+
+  local default_choice="1"
+  if [ "$LOCAL_TUNNEL_MODE" = "persistent" ]; then
+    default_choice="2"
+  fi
+
+  echo "Choose local access type:"
+  echo ""
+  echo "  1) Temporary tunnel"
+  echo "     Uses a random trycloudflare.com URL."
+  echo "     Easiest setup, but the URL changes when the tunnel changes."
+  echo ""
+  echo "  2) Persistent tunnel"
+  echo "     Uses a named Cloudflare Tunnel and your own Cloudflare-managed hostname."
+  echo "     Stable URL, but requires a Cloudflare-managed domain."
+  echo ""
+
+  local choice
+  read -rp "Select local access type [$default_choice]: " choice
+  case "${choice:-$default_choice}" in
+    1) LOCAL_TUNNEL_MODE="temporary" ;;
+    2) LOCAL_TUNNEL_MODE="persistent" ;;
+    *)
+      error "Invalid choice. Enter 1 or 2."
+      exit 1
+      ;;
+  esac
+  echo ""
+}
+
+ensure_cloudflare_login() {
+  local cert_file="$HOME/.cloudflared/cert.pem"
+  if [ -f "$cert_file" ]; then
+    success "Cloudflare tunnel login already present."
+    echo ""
+    return
+  fi
+
+  info "Logging into Cloudflare for persistent local tunnel setup..."
+  echo "    A browser will open so you can authorize cloudflared for a Cloudflare-managed domain."
+  echo ""
+  cloudflared tunnel login
+  echo ""
+}
+
+configure_local_tunnel() {
+  load_local_tunnel_settings
+  local existing_public_hostname="$PUBLIC_HOSTNAME"
+  local existing_tunnel_uuid="$TUNNEL_UUID"
+
+  local default_hostname="${PUBLIC_HOSTNAME:-}"
+  local default_tunnel_name="${TUNNEL_NAME:-obsidian-mcp-$(sanitize_name "$(hostname -s 2>/dev/null || echo local)")}"
+
+  info "Configuring persistent local tunnel..."
+  echo "    Enter a hostname on a domain managed by Cloudflare."
+  echo "    Example: obsidian.example.com"
+  echo ""
+
+  read -rp "Public hostname [${default_hostname:-obsidian.example.com}]: " PUBLIC_HOSTNAME_INPUT
+  PUBLIC_HOSTNAME="${PUBLIC_HOSTNAME_INPUT:-${default_hostname:-obsidian.example.com}}"
+  if [ -z "$PUBLIC_HOSTNAME" ] || [ "$PUBLIC_HOSTNAME" = "obsidian.example.com" ]; then
+    error "A real Cloudflare-managed hostname is required for local mode."
+    exit 1
+  fi
+
+  read -rp "Tunnel name [$default_tunnel_name]: " TUNNEL_NAME_INPUT
+  TUNNEL_NAME="${TUNNEL_NAME_INPUT:-$default_tunnel_name}"
+  if [ -z "$TUNNEL_NAME" ]; then
+    error "Tunnel name is required."
+    exit 1
+  fi
+
+  if [ -z "$TUNNEL_UUID" ] || [ ! -f "${TUNNEL_CREDENTIALS_FILE:-}" ]; then
+    local create_output
+    info "Creating Cloudflare tunnel \"$TUNNEL_NAME\"..."
+    create_output="$(cloudflared tunnel create "$TUNNEL_NAME" 2>&1)" || {
+      printf '%s\n' "$create_output" >&2
+      error "Failed to create Cloudflare tunnel."
+      exit 1
+    }
+    printf '%s\n' "$create_output"
+    TUNNEL_UUID="$(printf '%s\n' "$create_output" | grep -Eo '[0-9a-f]{8}-[0-9a-f-]{27}' | head -n 1 || true)"
+    if [ -z "$TUNNEL_UUID" ]; then
+      error "Could not determine tunnel ID from cloudflared output."
+      exit 1
+    fi
+    TUNNEL_CREDENTIALS_FILE="$HOME/.cloudflared/$TUNNEL_UUID.json"
+  else
+    info "Reusing Cloudflare tunnel \"$TUNNEL_NAME\"."
+  fi
+
+  if [ ! -f "$TUNNEL_CREDENTIALS_FILE" ]; then
+    error "Cloudflare tunnel credentials file not found: $TUNNEL_CREDENTIALS_FILE"
+    exit 1
+  fi
+
+  if [ "$PUBLIC_HOSTNAME" = "$existing_public_hostname" ] && [ "$TUNNEL_UUID" = "$existing_tunnel_uuid" ] && [ -f "$LOCAL_TUNNEL_CONFIG_FILE" ]; then
+    info "Reusing existing Cloudflare hostname route for $PUBLIC_HOSTNAME."
+  else
+    info "Routing $PUBLIC_HOSTNAME through Cloudflare Tunnel..."
+    if ! cloudflared tunnel route dns "$TUNNEL_UUID" "$PUBLIC_HOSTNAME"; then
+      error "Failed to route hostname through Cloudflare Tunnel."
+      echo "    If the hostname is already routed elsewhere, remove that route in Cloudflare and rerun setup."
+      exit 1
+    fi
+  fi
+
+  cat > "$LOCAL_TUNNEL_CONFIG_FILE" <<EOF
+tunnel: $TUNNEL_UUID
+credentials-file: $TUNNEL_CREDENTIALS_FILE
+ingress:
+  - hostname: $PUBLIC_HOSTNAME
+    service: http://$HOST:$PORT
+  - service: http_status:404
+EOF
+
+  write_local_tunnel_settings
+  LOCAL_URL="https://${PUBLIC_HOSTNAME}/mcp"
+  success "Local tunnel configured at $PUBLIC_HOSTNAME"
+  echo ""
+}
+
+clear_persistent_local_tunnel_settings() {
+  PUBLIC_HOSTNAME=""
+  TUNNEL_NAME=""
+  TUNNEL_UUID=""
+  TUNNEL_CREDENTIALS_FILE=""
 }
 
 setup_headless_vaults() {
@@ -630,7 +790,7 @@ stop_pid_file() {
   rm -f "$pid_file"
 }
 
-stop_quickstart_processes() {
+stop_local_processes() {
   mkdir -p "$PID_DIR"
   for pid_file in "$PID_DIR"/*.pid; do
     [ -f "$pid_file" ] || continue
@@ -654,39 +814,45 @@ wait_for_local_server() {
   exit 1
 }
 
-start_quickstart_processes() {
-  info "Starting quickstart background processes..."
+start_local_processes() {
+  info "Starting local background processes..."
   mkdir -p "$PID_DIR" "$LOG_DIR"
-  stop_quickstart_processes
+  stop_local_processes
 
   local mcp_log="$LOG_DIR/obsidian-mcp.log"
   local -a server_env
   server_env=(env API_KEY="$API_KEY" PORT="$PORT" HOST="$HOST")
 
-  if [ "$VAULT_SOURCE" = "desktop" ]; then
-    server_env+=(VAULT_MAP_FILE="$VAULT_MAP_FILE")
-  else
-    for name in "${VAULT_NAMES[@]}"; do
-      local sync_log="$LOG_DIR/obsidian-sync-$name.log"
-      nohup "$OB_BIN" sync --continuous --path "$VAULT_BASE/$name" >"$sync_log" 2>&1 &
-      echo $! > "$PID_DIR/obsidian-sync-$name.pid"
-    done
-    server_env+=(VAULT_PATH="$VAULT_BASE")
-  fi
+  server_env+=(VAULT_MAP_FILE="$VAULT_MAP_FILE")
 
   nohup "${server_env[@]}" "$NODE_BIN" "$PROJECT_DIR/dist/index.js" >"$mcp_log" 2>&1 &
   echo $! > "$PID_DIR/obsidian-mcp.pid"
   wait_for_local_server
 
   local tunnel_log="$LOG_DIR/cloudflared.log"
+  if [ "$LOCAL_TUNNEL_MODE" = "persistent" ]; then
+    nohup "$CLOUDFLARED_BIN" tunnel --config "$LOCAL_TUNNEL_CONFIG_FILE" --no-autoupdate run "$TUNNEL_UUID" >"$tunnel_log" 2>&1 &
+    echo $! > "$PID_DIR/cloudflared.pid"
+    sleep 2
+    if ! kill -0 "$(cat "$PID_DIR/cloudflared.pid" 2>/dev/null || true)" 2>/dev/null; then
+      error "Cloudflare tunnel process exited unexpectedly."
+      echo "    Check log: $LOG_DIR/cloudflared.log"
+      exit 1
+    fi
+    LOCAL_URL="https://${PUBLIC_HOSTNAME}/mcp"
+    success "Persistent local MCP endpoint is live."
+    return
+  fi
+
   nohup "$CLOUDFLARED_BIN" tunnel --url "http://$HOST:$PORT" --no-autoupdate >"$tunnel_log" 2>&1 &
   echo $! > "$PID_DIR/cloudflared.pid"
 
   for _ in $(seq 1 30); do
-    QUICKSTART_BASE_URL=$(grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' "$tunnel_log" | head -n 1 || true)
-    if [ -n "$QUICKSTART_BASE_URL" ]; then
-      QUICKSTART_URL="${QUICKSTART_BASE_URL}/mcp"
-      success "Quickstart MCP endpoint is live."
+    local temp_base_url
+    temp_base_url=$(grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' "$tunnel_log" | head -n 1 || true)
+    if [ -n "$temp_base_url" ]; then
+      LOCAL_URL="${temp_base_url}/mcp"
+      success "Temporary local MCP endpoint is live."
       return
     fi
     sleep 1
@@ -923,17 +1089,16 @@ EOF
   echo ""
 }
 
-print_quickstart_summary() {
-  print_client_config "$QUICKSTART_URL"
-  success "Your remote MCP endpoint is live at $QUICKSTART_URL"
-  echo "    This URL is temporary. If cloudflared restarts or the machine reboots, expect a new URL."
-  echo "    Good for first success and testing."
-  if [ "$VAULT_SOURCE" = "desktop" ]; then
-    echo "    Vault source: local Obsidian desktop vaults."
-    echo "    Sync stays managed by the Obsidian app on this device."
+print_local_summary() {
+  print_client_config "$LOCAL_URL"
+  success "Your local MCP endpoint is live at $LOCAL_URL"
+  if [ "$LOCAL_TUNNEL_MODE" = "persistent" ]; then
+    echo "    This hostname stays the same as long as the Cloudflare tunnel route stays configured."
   else
-    echo "    Vault source: obsidian-headless."
+    echo "    This URL is temporary. If cloudflared restarts or the machine reboots, expect a new URL."
   fi
+  echo "    Vault source: local Obsidian desktop vaults."
+  echo "    Sync stays managed by the Obsidian app on this device."
   echo "    Logs: $LOG_DIR"
   echo "    Stop processes: npm run stop"
 }
@@ -951,11 +1116,11 @@ echo "  obsidian-mcp setup"
 echo "  ==================="
 echo ""
 
-if [ "$MODE" = "quickstart" ]; then
-  echo "  Quickstart mode: for your own laptop or desktop with Obsidian installed."
-  echo "  Uses local desktop vaults directly when available."
-  echo "  Falls back to obsidian-headless only on machines without local desktop vaults."
-  echo "  Tradeoff: fast and simple, but the public URL is temporary and depends on this machine staying up."
+if [ "$MODE" = "local" ]; then
+  echo "  Local mode: for your own laptop or desktop with Obsidian installed."
+  echo "  Uses local desktop vaults directly."
+  echo "  You can choose a temporary trycloudflare URL or a persistent Cloudflare Tunnel hostname."
+  echo "  Tradeoff: temporary is easiest; persistent requires a Cloudflare-managed domain."
 else
   echo "  Production mode: for a separate self-hosted server or always-on machine."
   echo "  Uses obsidian-headless + system services + Caddy for a stable HTTPS endpoint."
@@ -968,6 +1133,16 @@ require_prerequisites
 determine_vault_source
 if [ "$MODE" = "production" ]; then
   configure_domain
+fi
+if [ "$MODE" = "local" ]; then
+  prompt_local_tunnel_mode
+  if [ "$LOCAL_TUNNEL_MODE" = "persistent" ]; then
+    ensure_cloudflare_login
+    configure_local_tunnel
+  else
+    clear_persistent_local_tunnel_settings
+    write_local_tunnel_settings
+  fi
 fi
 if [ "$MODE" = "production" ] || [ "$VAULT_SOURCE" = "headless" ]; then
   ensure_obsidian_login
@@ -982,12 +1157,12 @@ if [ "$MODE" = "production" ] || [ "$VAULT_SOURCE" = "headless" ]; then
   OB_BIN=$(command -v ob)
 fi
 
-if [ "$MODE" = "quickstart" ]; then
+if [ "$MODE" = "local" ]; then
   CLOUDFLARED_BIN=$(command -v cloudflared)
-  start_quickstart_processes
+  start_local_processes
   write_active_mode
   echo ""
-  print_quickstart_summary
+  print_local_summary
 else
   CADDY_BIN=$(command -v caddy)
   if [ "$OS" = "Darwin" ]; then

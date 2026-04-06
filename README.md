@@ -8,11 +8,11 @@ Remote MCP server that gives AI agents read/write access to your Obsidian vaults
 curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | bash
 ```
 
-That installs the app, runs interactive setup, and prints a remote MCP config. On personal machines it uses your real desktop vaults directly; on server-style machines it falls back to `obsidian-headless`.
+That installs the app, runs interactive setup, and prints a remote MCP config. On personal machines it uses your real desktop vaults directly and lets you choose either a temporary Cloudflare URL or a persistent Cloudflare Tunnel hostname.
 
 ## Which Mode Should I Use?
 
-- Laptop or desktop with the Obsidian app already installed: use quickstart.
+- Laptop or desktop with the Obsidian app already installed: use local.
 - VPS, home server, or separate always-on machine: use production.
 - If local desktop vaults are detected, `obsidian-headless` is blocked on that machine to avoid sync conflicts.
 
@@ -20,17 +20,17 @@ That installs the app, runs interactive setup, and prints a remote MCP config. O
 
 | Mode | Best for | Remote URL | URL stability | Infra burden | Survives reboot by default |
 |------|----------|------------|---------------|--------------|----------------------------|
-| Quickstart | First success, testing, running on your own machine | Yes | Temporary `trycloudflare.com` URL | Low | No |
+| Local | Running on your own machine with the Obsidian app | Yes | Temporary or stable, depending on tunnel choice | Medium | No |
 | Production | Long-term self-hosting | Yes | Stable domain | Higher | Yes |
 
-### 1. Quickstart
+### 1. Local
 
-- Uses `cloudflared` for a public HTTPS URL.
-- Uses desktop vaults directly when the Obsidian app is present.
-- Falls back to `obsidian-headless` only on machines without local desktop vaults.
-- Fastest setup, but the public URL is temporary and the machine must stay on.
+- Uses local desktop vaults directly.
+- Lets you choose a temporary `trycloudflare.com` URL or a persistent Cloudflare Tunnel hostname.
+- Persistent local mode requires a Cloudflare-managed domain.
+- Best for running on your own machine without `obsidian-headless`.
 
-Manage quickstart processes:
+Manage local-mode processes:
 
 ```bash
 npm run setup
@@ -55,7 +55,8 @@ curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh
 
 - a machine that can stay online while you use the MCP server
 - for server or headless mode: an [Obsidian Sync](https://obsidian.md/sync) subscription and a machine without local Obsidian desktop vaults
-- for desktop-vault quickstart on your own machine: a local Obsidian app install with at least one vault already configured
+- for local mode on your own machine: the Obsidian app installed with at least one local vault configured
+- for persistent local mode: a Cloudflare-managed domain
 
 ## Where Files Live
 
@@ -78,6 +79,9 @@ curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh
   - owned by `obsidian-headless`
   - stores its auth/local sync state
   - not removed by `npm run uninstall`
+- Cloudflare Tunnel resources for local mode
+  - named tunnel and DNS route live in your Cloudflare account
+  - not removed by `npm run uninstall`
 
 ## Manual Setup
 
@@ -92,7 +96,7 @@ cd obsidian-mcp
 
 2. Install dependencies:
 
-Quickstart also needs:
+Local mode also needs:
 
 ```bash
 brew install cloudflared              # macOS
@@ -165,7 +169,7 @@ Recommended commands:
 
 | Command | What it does |
 |---------|-------------|
-| `npm run setup` | Interactive setup. Choose quickstart or production |
+| `npm run setup` | Interactive setup. Choose local or production |
 | `npm run status` | Show status for the active mode |
 | `npm run logs` | Tail logs for the active mode |
 | `npm run stop` | Stop the active mode |
@@ -179,7 +183,7 @@ Recommended commands:
 ## Active Mode
 
 - `npm run setup` is the only setup entrypoint.
-- During setup, you choose quickstart or production.
+- During setup, you choose local or production.
 - That choice is remembered in `.obsidian-mcp/mode`.
 - After that, `npm run status`, `logs`, `stop`, `restart`, and `update` act on the active mode automatically.
 - If no active mode is detected, those commands tell you to run `npm run setup` first.
@@ -188,11 +192,12 @@ Recommended commands:
 
 - The printed client config uses `Authorization: Bearer <api-key>`, which is the preferred option.
 - For compatibility with some clients and transports, the server also accepts `X-API-Key`, `?api_key=...`, and `?token=...`.
-- Quickstart URLs are temporary `trycloudflare.com` endpoints. If the tunnel restarts or the machine reboots, expect a new URL.
+- Temporary local mode uses `trycloudflare.com`, so the URL can change on restart.
+- Persistent local mode uses a named Cloudflare Tunnel hostname, so the URL stays the same, but the machine and tunnel still need to be running.
 
 ## Troubleshooting
 
-**Quickstart tunnel did not come up**
+**Local tunnel did not come up**
 
 ```bash
 npm run logs
@@ -220,7 +225,7 @@ ufw allow 443/tcp
 
 **Re-running setup**
 
-`setup.sh` is safe to re-run. In quickstart it restarts the background MCP, sync, and tunnel processes. In production it refreshes services and configuration.
+`setup.sh` is safe to re-run. In local mode it restarts the background MCP and tunnel processes. In production it refreshes services and configuration.
 
 **What `npm run update` does**
 
@@ -228,7 +233,7 @@ ufw allow 443/tcp
 - uses `git pull` for git checkouts
 - falls back to downloading the latest repo archive for installer-style checkouts
 - reruns setup for the active mode
-- quickstart stays quickstart, production stays production
+- local stays local, production stays production
 
 **Start over safely**
 
@@ -241,14 +246,15 @@ That removes obsidian-mcp's generated config and services from this machine afte
 - your real Obsidian desktop vault folders
 - synced vault contents under `vaults/`
 - `~/.obsidian-headless`
+- Cloudflare Tunnel resources such as named tunnels and DNS routes
 - remote Obsidian Sync state
 
 ## Uninstall vs Purge
 
 - `npm run uninstall` is a safe uninstall.
 - It removes this app's generated config, runtime files, and installed services from this machine.
-- It does not delete your notes, your desktop vault folders, your headless state, or your remote Obsidian Sync state.
-- If you want a real purge of synced mirrors or `~/.obsidian-headless`, do that manually after uninstall.
+- It does not delete your notes, your desktop vault folders, your headless state, your Cloudflare Tunnel resources, or your remote Obsidian Sync state.
+- If you want a real purge of synced mirrors, `~/.obsidian-headless`, or Cloudflare tunnel resources, do that manually after uninstall.
 
 ## Recovery
 

@@ -61,13 +61,13 @@ read_prompt() {
 
 prompt_install_mode() {
   section "Choose Setup Mode"
-  emphasize "  1) Quickstart"
+  emphasize "  1) Local"
   bullet "Best for: your own laptop or desktop running the Obsidian app"
   bullet "Remote URL: yes"
-  bullet "URL stability: temporary, changes if the tunnel restarts"
-  bullet "Vault access: uses local desktop vaults directly when available"
-  bullet "Setup: easiest, no sudo, no Caddy, no system services"
-  bullet "Reliability: fine while this machine stays on and the processes keep running"
+  bullet "URL stability: temporary trycloudflare URL or stable Cloudflare Tunnel hostname"
+  bullet "Vault access: uses local desktop vaults directly"
+  bullet "Setup: no Caddy or system services; persistent mode needs a Cloudflare-managed domain"
+  bullet "Reliability: remote access works while this machine stays on and the tunnel process is running"
   echo ""
   emphasize "  2) Production"
   bullet "Best for: a separate self-hosted server or always-on machine"
@@ -81,7 +81,7 @@ prompt_install_mode() {
   local choice
   choice="$(read_prompt "Select mode [1]: ")"
   case "${choice:-1}" in
-    1) MODE="quickstart" ;;
+    1) MODE="local" ;;
     2) MODE="production" ;;
     *)
       error "Invalid choice. Enter 1 or 2."
@@ -91,8 +91,8 @@ prompt_install_mode() {
 }
 
 ensure_mode_permissions() {
-  if [ "$MODE" = "quickstart" ] && [ "$(id -u)" -eq 0 ]; then
-    error "Quickstart should be run as your normal user so Obsidian login and background processes live in your account."
+  if [ "$MODE" = "local" ] && [ "$(id -u)" -eq 0 ]; then
+    error "Local mode should be run as your normal user so desktop vault access and Cloudflare login live in your account."
     echo "    Re-run without sudo:"
     echo "    curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | bash"
     exit 1
@@ -178,7 +178,7 @@ prompt_install_dir() {
   fi
 
   local default_dir
-  if [ "$MODE" = "quickstart" ]; then
+  if [ "$MODE" = "local" ]; then
     default_dir="$HOME/.local/share/obsidian-mcp"
   else
     default_dir="/opt/obsidian-mcp"
@@ -232,13 +232,12 @@ print_installer_banner() {
   echo -e "${DIM}======================${RESET}"
   bullet "Install dir: $INSTALL_DIR"
 
-  if [ "$MODE" = "quickstart" ]; then
-    note_block "Quickstart Summary" \
+  if [ "$MODE" = "local" ]; then
+    note_block "Local Summary" \
       "Installs obsidian-mcp, Node.js, and cloudflared" \
       "Best on your own laptop or desktop with the Obsidian app installed" \
-      "Installs obsidian-headless only if this machine does not already have local Obsidian vaults" \
-      "Gives you a public remote MCP URL fast" \
-      "Tradeoff: easiest setup, but the URL is temporary"
+      "Uses local desktop vaults directly" \
+      "Lets you choose a temporary trycloudflare URL or a persistent Cloudflare Tunnel hostname"
   else
     note_block "Production Summary" \
       "Best on a separate self-hosted server or always-on machine" \
@@ -348,7 +347,7 @@ download_cloudflared_binary() {
   esac
 
   section "cloudflared"
-  info "Installing cloudflared (quickstart tunnel)..."
+  info "Installing cloudflared (persistent local tunnel)..."
 
   if [[ "$url" == *.tgz ]]; then
     local tmpdir
@@ -397,7 +396,7 @@ install_ob() {
 
 expose_installed_tools() {
   local target_bin_dir
-  if [ "$MODE" = "quickstart" ]; then
+  if [ "$MODE" = "local" ]; then
     target_bin_dir="$HOME/.local/bin"
     mkdir -p "$target_bin_dir"
     export PATH="$target_bin_dir:$PATH"
@@ -433,7 +432,7 @@ if [ -z "$MODE" ]; then
 fi
 
 case "$MODE" in
-  quickstart|production) ;;
+  local|quickstart|production) ;;
   *)
     error "Unsupported mode: $MODE"
     exit 1
@@ -449,29 +448,33 @@ install_node
 detect_desktop_vaults || true
 
 if [ "$MODE" = "quickstart" ]; then
+  MODE="local"
+fi
+
+if [ "$MODE" = "local" ]; then
   if [ "$DESKTOP_VAULT_COUNT" -gt 0 ]; then
     section "Vault Mode"
     success "Detected ${DESKTOP_VAULT_COUNT} local Obsidian vault(s)."
-    bullet "Quickstart will use the desktop vault folders directly"
+    bullet "Local mode will use the desktop vault folders directly"
     bullet "obsidian-headless will NOT be installed on this machine"
     bullet "This avoids sync conflicts with the Obsidian desktop app"
   else
-    section "Vault Mode"
-    warn "No local Obsidian vaults detected."
-    bullet "Quickstart will use obsidian-headless on this machine"
-    bullet "You will be asked to log into Obsidian during setup"
+    error "No local Obsidian desktop vaults were detected on this machine."
+    echo "    Local mode requires the Obsidian app and at least one local vault."
+    echo "    Use production on a separate server or always-on machine instead."
+    exit 1
   fi
   install_cloudflared
 else
   if [ "$DESKTOP_VAULT_COUNT" -gt 0 ]; then
     error "Local Obsidian vaults were detected on this machine."
     echo "    Production mode uses obsidian-headless and is blocked here to avoid sync conflicts with the Obsidian app."
-    echo "    Use quickstart on this machine, or run production on a separate server or always-on machine."
+    echo "    Use local mode on this machine, or run production on a separate server or always-on machine."
     exit 1
   fi
   install_caddy
 fi
-if [ "$MODE" = "production" ] || [ "$DESKTOP_VAULT_COUNT" -eq 0 ]; then
+if [ "$MODE" = "production" ]; then
   install_ob
 fi
 expose_installed_tools
