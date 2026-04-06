@@ -47,10 +47,14 @@ prompt_setup_mode() {
   echo "Choose setup mode:"
   echo ""
   echo "  1) Quickstart"
-  echo "     Fastest path. Temporary public URL. Best on your own machine."
+  echo "     For your own laptop or desktop running the Obsidian app."
+  echo "     Uses the real local vault folders directly when available."
+  echo "     Fastest path, but the public URL is temporary."
   echo ""
   echo "  2) Production"
-  echo "     Stable endpoint with services + Caddy. Best on a separate server-style machine."
+  echo "     For a separate self-hosted server or always-on machine."
+  echo "     Uses obsidian-headless, system services, and Caddy."
+  echo "     Stable endpoint, but more setup."
   echo ""
 
   local choice
@@ -914,14 +918,14 @@ echo "  ==================="
 echo ""
 
 if [ "$MODE" = "quickstart" ]; then
-  echo "  Quickstart mode: public remote MCP endpoint now via cloudflared."
-  echo "  No Caddy. No system services. No root."
-  echo "  If local Obsidian vaults are detected, they are mounted directly."
-  echo "  Otherwise this machine uses obsidian-headless."
-  echo "  Tradeoff: fast and simple, but the URL is temporary and depends on this machine staying up."
+  echo "  Quickstart mode: for your own laptop or desktop with Obsidian installed."
+  echo "  Uses local desktop vaults directly when available."
+  echo "  Falls back to obsidian-headless only on machines without local desktop vaults."
+  echo "  Tradeoff: fast and simple, but the public URL is temporary and depends on this machine staying up."
 else
-  echo "  Production mode: system services + Caddy + stable HTTPS domain."
-  echo "  This mode is for a separate server-style machine without local Obsidian desktop vaults."
+  echo "  Production mode: for a separate self-hosted server or always-on machine."
+  echo "  Uses obsidian-headless + system services + Caddy for a stable HTTPS endpoint."
+  echo "  This mode is blocked on machines that already have local Obsidian desktop vaults."
   echo "  Tradeoff: more setup, but better durability and a stable endpoint."
 fi
 echo ""

@@ -62,17 +62,18 @@ read_prompt() {
 prompt_install_mode() {
   section "Choose Setup Mode"
   emphasize "  1) Quickstart"
-  bullet "Best for: trying it fast on your own machine"
+  bullet "Best for: your own laptop or desktop running the Obsidian app"
   bullet "Remote URL: yes"
   bullet "URL stability: temporary, changes if the tunnel restarts"
-  bullet "Vault access: local desktop vaults when available, headless sync otherwise"
+  bullet "Vault access: uses local desktop vaults directly when available"
   bullet "Setup: easiest, no sudo, no Caddy, no system services"
   bullet "Reliability: fine while this machine stays on and the processes keep running"
   echo ""
   emphasize "  2) Production"
-  bullet "Best for: a stable always-on endpoint"
+  bullet "Best for: a separate self-hosted server or always-on machine"
   bullet "Remote URL: yes"
   bullet "URL stability: stable domain"
+  bullet "Vault access: obsidian-headless + Obsidian Sync only"
   bullet "Setup: more work, requires sudo/root, Caddy, and system services"
   bullet "Reliability: best for long-term self-hosting"
   echo ""
@@ -234,11 +235,13 @@ print_installer_banner() {
   if [ "$MODE" = "quickstart" ]; then
     note_block "Quickstart Summary" \
       "Installs obsidian-mcp, Node.js, and cloudflared" \
+      "Best on your own laptop or desktop with the Obsidian app installed" \
       "Installs obsidian-headless only if this machine does not already have local Obsidian vaults" \
       "Gives you a public remote MCP URL fast" \
       "Tradeoff: easiest setup, but the URL is temporary"
   else
     note_block "Production Summary" \
+      "Best on a separate self-hosted server or always-on machine" \
       "Installs obsidian-mcp, Node.js, Caddy, and obsidian-headless" \
       "Registers system services and configures a stable HTTPS endpoint" \
       "Tradeoff: more setup, but better long-term durability"
