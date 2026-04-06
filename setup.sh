@@ -241,15 +241,9 @@ bootstrap_vault_sync() {
   info "Connecting to vault \"$vault_label\"..."
   ob sync-setup --vault "$vault_label" --path "$vault_dir"
 
-  info "Configuring first sync as pull-only for safety..."
-  ob sync-config --path "$vault_dir" --mode pull-only >/dev/null
-
-  info "Downloading vault contents (first sync is pull-only)..."
+  info "Running first sync..."
   ob sync --path "$vault_dir"
   touch "$vault_dir/$VAULT_MARKER"
-
-  info "Switching vault to bidirectional sync for ongoing updates..."
-  ob sync-config --path "$vault_dir" --mode bidirectional >/dev/null
 
   success "Vault \"$vault_label\" synced safely to $vault_dir."
 }
