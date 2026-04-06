@@ -2,7 +2,7 @@
 
 Remote MCP server that gives AI agents read/write access to your Obsidian vaults. On personal machines it mounts the real local vault folders used by the Obsidian app; on server-style machines without local desktop vaults it falls back to syncing with [obsidian-headless](https://github.com/obsidianmd/obsidian-headless).
 
-## Fastest Path
+## Installation
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | bash
