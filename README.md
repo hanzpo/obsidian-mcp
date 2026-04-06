@@ -241,7 +241,7 @@ Recommended commands:
 | `npm run logs` | Tail logs for the active mode |
 | `npm run stop` | Stop the active mode |
 | `npm run restart` | Restart the active mode |
-| `npm run update` | Pull latest changes and rerun setup for the active mode |
+| `npm run update` | Refresh repo files and rerun setup for the active mode |
 | `npm run build` | Compile TypeScript |
 | `npm run check` | Type-check, lint, and test |
 | `npm run keygen` | Generate or rotate the API key |
@@ -295,7 +295,9 @@ ufw allow 443/tcp
 
 **What `npm run update` does**
 
-- runs `git pull`
+- refreshes the repo files
+- uses `git pull` for git checkouts
+- falls back to downloading the latest repo archive for installer-style checkouts
 - reruns setup for the active mode
 - quickstart stays quickstart, production stays production
 

@@ -2,6 +2,7 @@
   "name": "obsidian-mcp",
   "version": "0.1.0",
   "description": "Remote MCP server for Obsidian vault access",
+  "private": true,
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

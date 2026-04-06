@@ -5,6 +5,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNTIME_DIR="$PROJECT_DIR/.obsidian-mcp"
 MODE_FILE="$RUNTIME_DIR/mode"
 OS="$(uname -s)"
+ARCHIVE_URL="https://github.com/hanzpo/obsidian-mcp/archive/refs/heads/main.tar.gz"
 
 print_help() {
   echo "obsidian-mcp commands"
@@ -14,13 +15,32 @@ print_help() {
   echo "  npm run logs        Tail logs for the active mode"
   echo "  npm run stop        Stop the active mode"
   echo "  npm run restart     Restart the active mode"
-  echo "  npm run update      Pull latest changes and rerun setup for the active mode"
+  echo "  npm run update      Refresh repo files and rerun setup for the active mode"
   echo "  npm run keygen      Generate or rotate the API key"
   echo "  npm run uninstall   Safely remove obsidian-mcp setup from this machine"
   echo ""
   echo "Other"
   echo "  npm run build"
   echo "  npm run check"
+}
+
+update_repo_files() {
+  if [ -d "$PROJECT_DIR/.git" ] && command -v git >/dev/null 2>&1; then
+    git pull
+    return
+  fi
+
+  if ! command -v curl >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
+    echo "Update requires either git, or both curl and tar." >&2
+    exit 1
+  fi
+
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' RETURN
+
+  curl -fsSL "$ARCHIVE_URL" -o "$tmpdir/obsidian-mcp.tar.gz"
+  tar -xzf "$tmpdir/obsidian-mcp.tar.gz" --strip-components=1 -C "$PROJECT_DIR"
 }
 
 stop_pid_file() {
@@ -64,7 +84,12 @@ quickstart_status() {
 }
 
 quickstart_logs() {
-  tail -f "$RUNTIME_DIR"/logs/*.log
+  local logs_dir="$RUNTIME_DIR/logs"
+  if [ ! -d "$logs_dir" ] || ! find "$logs_dir" -maxdepth 1 -name '*.log' -print -quit 2>/dev/null | grep -q .; then
+    echo "No quickstart logs found yet. Run npm run setup first, or wait for the background processes to write logs." >&2
+    exit 1
+  fi
+  tail -f "$logs_dir"/*.log
 }
 
 prod_up_macos() {
@@ -99,7 +124,22 @@ prod_status_macos() {
 }
 
 prod_logs_macos() {
-  tail -f /tmp/obsidian-mcp.log /tmp/obsidian-caddy.log /tmp/obsidian-sync-*.log
+  local logs=()
+  [ -f /tmp/obsidian-mcp.log ] && logs+=(/tmp/obsidian-mcp.log)
+  [ -f /tmp/obsidian-caddy.log ] && logs+=(/tmp/obsidian-caddy.log)
+
+  local sync_log
+  for sync_log in /tmp/obsidian-sync-*.log; do
+    [ -f "$sync_log" ] || continue
+    logs+=("$sync_log")
+  done
+
+  if [ ${#logs[@]} -eq 0 ]; then
+    echo "No production logs found yet. Run npm run setup first, or check whether the services have started." >&2
+    exit 1
+  fi
+
+  tail -f "${logs[@]}"
 }
 
 prod_up_linux() {
@@ -262,7 +302,7 @@ update_cmd() {
   local mode
   mode="$(require_active_mode)"
   echo "Active mode: $mode"
-  git pull
+  update_repo_files
   if [ "$mode" = "quickstart" ]; then
     PATH="$HOME/.local/bin:$PATH" ./setup.sh --quickstart
   else
