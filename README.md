@@ -49,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh
 - Refuses to run on machines with local desktop vaults.
 - Best for a stable endpoint on a separate always-on machine.
 - If you use your own domain, point its `A` record or `AAAA` record at the server's public IP.
-- If you use `sslip.io`, no DNS changes are needed. IPv4 and IPv6 public IPs are both supported.
+- If you use `sslip.io`, no DNS changes are needed. The setup flow prefers an IPv4-based hostname when available because it is more widely reachable from clients.
 
 ## Prerequisites
 

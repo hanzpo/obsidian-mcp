@@ -90,6 +90,24 @@ ip_to_sslip_hostname() {
   printf '%s.sslip.io' "${ip//[:.]/-}"
 }
 
+detect_public_ip() {
+  local ip=""
+
+  ip=$(curl -4 -fsSL --max-time 5 https://ifconfig.me 2>/dev/null || curl -4 -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)
+  if [ -n "$ip" ]; then
+    printf '%s' "$ip"
+    return 0
+  fi
+
+  ip=$(curl -6 -fsSL --max-time 5 https://ifconfig.me 2>/dev/null || curl -6 -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)
+  if [ -n "$ip" ]; then
+    printf '%s' "$ip"
+    return 0
+  fi
+
+  return 1
+}
+
 alias_exists() {
   local candidate="$1"
   local entry
@@ -302,7 +320,7 @@ configure_domain() {
   if [ -n "$EXISTING_DOMAIN" ]; then
     DEFAULT_DOMAIN="$EXISTING_DOMAIN"
   else
-    PUBLIC_IP=$(curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null || curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)
+    PUBLIC_IP="$(detect_public_ip || true)"
     if [ -n "$PUBLIC_IP" ]; then
       DEFAULT_DOMAIN="$(ip_to_sslip_hostname "$PUBLIC_IP")"
     else
