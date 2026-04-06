@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Reopen stdin from terminal so interactive prompts work when piped (curl | bash)
+if [ ! -t 0 ]; then
+  exec </dev/tty
+fi
+
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # --- Formatting helpers ---
@@ -143,6 +148,7 @@ DOCKER_BIN=$(command -v docker)
 
 # --- Step 7: Generate and install systemd units ---
 info "Installing systemd services..."
+mkdir -p /etc/systemd/system
 
 for tmpl in "$PROJECT_DIR/systemd/"*.template; do
   unit=$(basename "$tmpl" .template)
