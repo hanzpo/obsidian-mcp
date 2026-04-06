@@ -76,6 +76,26 @@ prepare_vault_dir() {
   mkdir -p "$vault_dir"
 }
 
+bootstrap_vault_sync() {
+  local vault_label="$1"
+  local vault_dir="$2"
+
+  info "Connecting to vault \"$vault_label\"..."
+  ob sync-setup --vault "$vault_label" --path "$vault_dir"
+
+  info "Configuring first sync as pull-only for safety..."
+  ob sync-config --path "$vault_dir" --mode pull-only >/dev/null
+
+  info "Downloading vault contents (first sync is pull-only)..."
+  ob sync --path "$vault_dir"
+  touch "$vault_dir/$VAULT_MARKER"
+
+  info "Switching vault to bidirectional sync for ongoing updates..."
+  ob sync-config --path "$vault_dir" --mode bidirectional >/dev/null
+
+  success "Vault \"$vault_label\" synced safely to $vault_dir."
+}
+
 ensure_mode_permissions() {
   if [ "$MODE" = "quickstart" ] && [ "$(id -u)" -eq 0 ]; then
     error "Quickstart should be run as your normal user so Obsidian login and background processes live in your account."
@@ -198,14 +218,7 @@ setup_vaults() {
     SAFE_NAME=$(sanitize_name "$VAULT_NAME")
     VAULT_DIR="$VAULT_BASE/$SAFE_NAME"
     prepare_vault_dir "$VAULT_NAME" "$VAULT_DIR"
-
-    info "Connecting to vault \"$VAULT_NAME\"..."
-    ob sync-setup --vault "$VAULT_NAME" --path "$VAULT_DIR"
-
-    info "Downloading vault contents (this may take a moment for large vaults)..."
-    ob sync --path "$VAULT_DIR"
-    touch "$VAULT_DIR/$VAULT_MARKER"
-    success "Vault \"$VAULT_NAME\" synced to $VAULT_DIR."
+    bootstrap_vault_sync "$VAULT_NAME" "$VAULT_DIR"
 
     VAULT_NAMES+=("$SAFE_NAME")
     SHOWN_REMOTE_LIST=true
@@ -241,14 +254,7 @@ setup_vaults() {
 
     VAULT_DIR="$VAULT_BASE/$SAFE_NAME"
     prepare_vault_dir "$VAULT_NAME" "$VAULT_DIR"
-
-    info "Connecting to vault \"$VAULT_NAME\"..."
-    ob sync-setup --vault "$VAULT_NAME" --path "$VAULT_DIR"
-
-    info "Downloading vault contents (this may take a moment for large vaults)..."
-    ob sync --path "$VAULT_DIR"
-    touch "$VAULT_DIR/$VAULT_MARKER"
-    success "Vault \"$VAULT_NAME\" synced to $VAULT_DIR."
+    bootstrap_vault_sync "$VAULT_NAME" "$VAULT_DIR"
 
     VAULT_NAMES+=("$SAFE_NAME")
   done

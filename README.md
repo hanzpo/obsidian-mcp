@@ -17,7 +17,7 @@ Quickstart does this:
 - installs into a dedicated app directory instead of assuming the current working directory is safe
 - walks you through `ob login`
 - lets you pick one or more Obsidian Sync vaults
-- performs the initial sync
+- performs the initial sync in `pull-only` mode, then switches to normal bidirectional sync
 - starts the MCP server and continuous sync in the background
 - opens a public HTTPS tunnel and prints ready-to-paste MCP config
 
@@ -59,6 +59,7 @@ Tradeoffs:
 - URL is temporary and usually changes if the tunnel restarts
 - depends on this machine staying on and the background processes staying alive
 - setup refuses to sync into a non-empty unmanaged vault directory
+- first sync is forced to `pull-only` so an empty local folder is not treated as authoritative
 
 Manage quickstart processes:
 
@@ -92,6 +93,7 @@ Tradeoffs:
 - best if you want a stable endpoint you can leave running for a long time
 - better fit for a VPS, Mac mini, or other always-on machine
 - setup refuses to install into or sync over unrelated non-empty directories
+- first sync is forced to `pull-only` before switching to normal bidirectional sync
 
 Architecture:
 
