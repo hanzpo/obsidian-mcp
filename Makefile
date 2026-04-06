@@ -1,5 +1,7 @@
 .PHONY: install build start stop restart status logs logs-sync logs-mcp logs-caddy keygen update
 
+OS := $(shell uname -s)
+
 # Detect vault names from vaults/ subdirectories
 VAULT_NAMES := $(notdir $(wildcard vaults/*/))
 SYNC_SERVICES := $(foreach name,$(VAULT_NAMES),obsidian-sync-$(name).service)
@@ -9,6 +11,9 @@ build:
 	npm run build --silent
 
 install: build
+ifeq ($(OS),Darwin)
+	@echo "On macOS, run sudo ./setup.sh to install services."
+else
 	mkdir -p /etc/systemd/system
 	@PROJECT_DIR=$$(pwd) && \
 	OB_BIN=$$(command -v ob) && \
@@ -36,7 +41,45 @@ install: build
 	done
 	systemctl daemon-reload
 	systemctl enable obsidian-mcp.target
+endif
 
+ifeq ($(OS),Darwin)
+start:
+	launchctl bootstrap system ~/Library/LaunchDaemons/com.obsidian-mcp.server.plist 2>/dev/null || true
+	launchctl bootstrap system ~/Library/LaunchDaemons/com.obsidian-mcp.caddy.plist 2>/dev/null || true
+	@for name in $(VAULT_NAMES); do \
+		launchctl bootstrap system ~/Library/LaunchDaemons/com.obsidian-mcp.sync-$$name.plist 2>/dev/null || true; \
+	done
+
+stop:
+	launchctl bootout system ~/Library/LaunchDaemons/com.obsidian-mcp.server.plist 2>/dev/null || true
+	launchctl bootout system ~/Library/LaunchDaemons/com.obsidian-mcp.caddy.plist 2>/dev/null || true
+	@for name in $(VAULT_NAMES); do \
+		launchctl bootout system ~/Library/LaunchDaemons/com.obsidian-mcp.sync-$$name.plist 2>/dev/null || true; \
+	done
+
+restart: stop start
+
+status:
+	@launchctl print system/com.obsidian-mcp.server 2>/dev/null || echo "MCP server: not running"
+	@launchctl print system/com.obsidian-mcp.caddy 2>/dev/null || echo "Caddy: not running"
+	@for name in $(VAULT_NAMES); do \
+		launchctl print system/com.obsidian-mcp.sync-$$name 2>/dev/null || echo "Sync $$name: not running"; \
+	done
+
+logs:
+	tail -f /tmp/obsidian-mcp.log /tmp/obsidian-caddy.log /tmp/obsidian-sync-*.log
+
+logs-sync:
+	tail -f /tmp/obsidian-sync-*.log
+
+logs-mcp:
+	tail -f /tmp/obsidian-mcp.log
+
+logs-caddy:
+	tail -f /tmp/obsidian-caddy.log
+
+else
 start:
 	systemctl start obsidian-mcp.target
 
@@ -66,6 +109,7 @@ logs-mcp:
 
 logs-caddy:
 	journalctl -u caddy -f
+endif
 
 keygen:
 	./keygen.sh
@@ -73,4 +117,8 @@ keygen:
 update:
 	git pull
 	$(MAKE) install
+ifeq ($(OS),Darwin)
+	$(MAKE) restart
+else
 	systemctl restart obsidian-mcp.target
+endif

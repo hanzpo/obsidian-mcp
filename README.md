@@ -16,14 +16,14 @@ AI Agent (Claude, Cursor, etc.)
                         Obsidian Sync <-> your devices
 ```
 
-All three services (Caddy, MCP server, vault sync) run directly on the host via systemd. No Docker required.
+All three services (Caddy, MCP server, vault sync) run directly on the host -- systemd on Linux, launchd on macOS. No Docker required.
 
 ## Prerequisites
 
-- A server (e.g. Hetzner VPS)
+- A server (e.g. Hetzner VPS) or a Mac
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
 
-That's it. No domain needed -- the installer auto-configures one via [sslip.io](https://sslip.io). Node.js, Caddy, and everything else is handled automatically.
+That's it. No domain needed -- the installer auto-configures one via [sslip.io](https://sslip.io). Works on Linux (Debian/Ubuntu/Fedora) and macOS. Node.js, Caddy, and everything else is handled automatically.
 
 ## Install
 

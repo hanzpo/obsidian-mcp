@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="https://github.com/hanzpo/obsidian-mcp.git"
 INSTALL_DIR="$(pwd)/obsidian-mcp"
+OS="$(uname -s)"
 
 info()    { echo -e "\033[1;34m==>\033[0m $*"; }
 success() { echo -e "\033[1;32m==>\033[0m $*"; }
@@ -34,7 +35,7 @@ install_node() {
   fi
 
   info "Installing Node.js 22 via nvm (needed to run the MCP server and obsidian-headless)..."
-  export NVM_DIR="${NVM_DIR:-/root/.nvm}"
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
   if [ ! -d "$NVM_DIR" ]; then
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
   fi
@@ -53,17 +54,45 @@ install_caddy() {
 
   info "Installing Caddy (handles HTTPS and reverse proxy)..."
 
-  # Use official Caddy install script
-  apt-get update -qq
-  apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl >/dev/null 2>&1
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
-  apt-get update -qq
-  apt-get install -y -qq caddy >/dev/null 2>&1
+  case "$OS" in
+    Darwin)
+      # macOS — use Homebrew
+      if ! command -v brew &>/dev/null; then
+        error "Homebrew is required on macOS. Install from https://brew.sh"
+        exit 1
+      fi
+      sudo -u "${SUDO_USER:-$USER}" brew install caddy
+      ;;
+    Linux)
+      if command -v apt &>/dev/null; then
+        apt update -qq
+        apt install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl >/dev/null 2>&1
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+        apt update -qq
+        apt install -y -qq caddy >/dev/null 2>&1
+      elif command -v dnf &>/dev/null; then
+        dnf install -y 'dnf-command(copr)' >/dev/null 2>&1
+        dnf copr enable -y @caddy/caddy >/dev/null 2>&1
+        dnf install -y caddy >/dev/null 2>&1
+      elif command -v yum &>/dev/null; then
+        yum install -y yum-plugin-copr >/dev/null 2>&1
+        yum copr enable -y @caddy/caddy >/dev/null 2>&1
+        yum install -y caddy >/dev/null 2>&1
+      else
+        error "Could not detect package manager. Install Caddy manually: https://caddyserver.com/docs/install"
+        exit 1
+      fi
 
-  # Stop the default caddy service — we manage our own via systemd
-  systemctl stop caddy 2>/dev/null || true
-  systemctl disable caddy 2>/dev/null || true
+      # Stop the default caddy service — we manage our own
+      systemctl stop caddy 2>/dev/null || true
+      systemctl disable caddy 2>/dev/null || true
+      ;;
+    *)
+      error "Unsupported OS: $OS"
+      exit 1
+      ;;
+  esac
 
   success "Caddy installed."
 }

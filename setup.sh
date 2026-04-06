@@ -7,6 +7,7 @@ if [ ! -t 0 ]; then
 fi
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OS="$(uname -s)"
 
 # --- Formatting helpers ---
 info()    { echo -e "\033[1;34m==>\033[0m $*"; }
@@ -22,9 +23,205 @@ check_command() {
   fi
 }
 
-# Sanitize vault name to a safe identifier for systemd unit names and directories
+# Sanitize vault name to a safe identifier for service names and directories
 sanitize_name() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+}
+
+# --- Platform-specific service installation ---
+
+install_services_linux() {
+  info "Setting up systemd services to run on boot..."
+  mkdir -p /etc/systemd/system
+
+  # Clean up orphaned sync services from previous runs
+  for existing in /etc/systemd/system/obsidian-sync-*.service; do
+    [ -f "$existing" ] || continue
+    unit_name=$(basename "$existing" .service)
+    vault_name="${unit_name#obsidian-sync-}"
+    if [[ ! " ${VAULT_NAMES[*]} " == *" $vault_name "* ]]; then
+      systemctl stop "$unit_name.service" 2>/dev/null || true
+      systemctl disable "$unit_name.service" 2>/dev/null || true
+      rm -f "$existing"
+      info "Removed orphaned service: $unit_name"
+    fi
+  done
+
+  # Build list of sync service names
+  SYNC_SERVICES=""
+  for name in "${VAULT_NAMES[@]}"; do
+    SYNC_SERVICES="$SYNC_SERVICES obsidian-sync-${name}.service"
+  done
+  SYNC_SERVICES="${SYNC_SERVICES# }"  # trim leading space
+
+  # Generate one sync service per vault
+  for name in "${VAULT_NAMES[@]}"; do
+    sed \
+      -e "s|__VAULT_NAME__|$name|g" \
+      -e "s|__VAULT_DIR__|$VAULT_BASE/$name|g" \
+      -e "s|__NODE_BIN_DIR__|$NODE_BIN_DIR|g" \
+      -e "s|__OB_BIN__|$OB_BIN|g" \
+      "$PROJECT_DIR/systemd/obsidian-sync.service.template" \
+      > "/etc/systemd/system/obsidian-sync-${name}.service"
+  done
+
+  # Generate MCP service, Caddy service, and target
+  for tmpl in "$PROJECT_DIR/systemd/"*.template; do
+    unit=$(basename "$tmpl" .template)
+    # Skip sync template (handled per-vault above)
+    [[ "$unit" == "obsidian-sync" ]] && continue
+    sed \
+      -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+      -e "s|__NODE_BIN_DIR__|$NODE_BIN_DIR|g" \
+      -e "s|__NODE_BIN__|$NODE_BIN|g" \
+      -e "s|__OB_BIN__|$OB_BIN|g" \
+      -e "s|__CADDY_BIN__|$CADDY_BIN|g" \
+      -e "s|__SYNC_SERVICES__|$SYNC_SERVICES|g" \
+      "$tmpl" > "/etc/systemd/system/$unit"
+  done
+
+  systemctl daemon-reload
+  systemctl enable obsidian-mcp.target
+
+  info "Starting services..."
+  systemctl start obsidian-mcp.target
+  success "Services installed and running (${#VAULT_NAMES[@]} vault sync + MCP server + Caddy)."
+}
+
+install_services_macos() {
+  info "Setting up launchd services..."
+
+  PLIST_DIR="$HOME/Library/LaunchDaemons"
+  mkdir -p "$PLIST_DIR"
+
+  # Source .env vars for the environment
+  ENV_VARS=$(cat <<ENVBLOCK
+        <key>DOMAIN</key>
+        <string>$DOMAIN</string>
+        <key>API_KEY</key>
+        <string>$API_KEY</string>
+        <key>VAULT_PATH</key>
+        <string>$VAULT_BASE</string>
+        <key>PORT</key>
+        <string>3456</string>
+        <key>HOST</key>
+        <string>0.0.0.0</string>
+        <key>PATH</key>
+        <string>$NODE_BIN_DIR:/usr/local/bin:/usr/bin:/bin</string>
+ENVBLOCK
+  )
+
+  # Generate one sync plist per vault
+  for name in "${VAULT_NAMES[@]}"; do
+    LABEL="com.obsidian-mcp.sync-${name}"
+    cat > "$PLIST_DIR/$LABEL.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$OB_BIN</string>
+        <string>sync</string>
+        <string>--continuous</string>
+        <string>--path</string>
+        <string>$VAULT_BASE/$name</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>$NODE_BIN_DIR:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/obsidian-sync-${name}.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/obsidian-sync-${name}.log</string>
+</dict>
+</plist>
+PLIST
+    launchctl bootout system "$PLIST_DIR/$LABEL.plist" 2>/dev/null || true
+    launchctl bootstrap system "$PLIST_DIR/$LABEL.plist"
+  done
+
+  # MCP server plist
+  LABEL="com.obsidian-mcp.server"
+  cat > "$PLIST_DIR/$LABEL.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$NODE_BIN</string>
+        <string>$PROJECT_DIR/dist/index.js</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$PROJECT_DIR</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+$ENV_VARS
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/obsidian-mcp.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/obsidian-mcp.log</string>
+</dict>
+</plist>
+PLIST
+  launchctl bootout system "$PLIST_DIR/$LABEL.plist" 2>/dev/null || true
+  launchctl bootstrap system "$PLIST_DIR/$LABEL.plist"
+
+  # Caddy plist
+  LABEL="com.obsidian-mcp.caddy"
+  cat > "$PLIST_DIR/$LABEL.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$CADDY_BIN</string>
+        <string>run</string>
+        <string>--config</string>
+        <string>$PROJECT_DIR/Caddyfile</string>
+        <string>--adapter</string>
+        <string>caddyfile</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DOMAIN</key>
+        <string>$DOMAIN</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/obsidian-caddy.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/obsidian-caddy.log</string>
+</dict>
+</plist>
+PLIST
+  launchctl bootout system "$PLIST_DIR/$LABEL.plist" 2>/dev/null || true
+  launchctl bootstrap system "$PLIST_DIR/$LABEL.plist"
+
+  success "Services installed and running (${#VAULT_NAMES[@]} vault sync + MCP server + Caddy)."
+  echo "    Logs: /tmp/obsidian-*.log"
 }
 
 # --- Root check ---
@@ -240,74 +437,22 @@ npm run build --silent
 success "MCP server built."
 echo ""
 
-# --- Step 7: Detect paths for systemd templates ---
+# --- Step 7: Detect paths ---
 OB_BIN=$(command -v ob)
 NODE_BIN=$(command -v node)
 NODE_BIN_DIR=$(dirname "$NODE_BIN")
 CADDY_BIN=$(command -v caddy)
 
-# --- Step 8: Generate and install systemd units ---
-info "Setting up services to run on boot..."
-mkdir -p /etc/systemd/system
+# --- Step 8: Install and start services ---
+if [ "$OS" = "Darwin" ]; then
+  install_services_macos
+else
+  install_services_linux
+fi
 
-# Clean up orphaned sync services from previous runs
-for existing in /etc/systemd/system/obsidian-sync-*.service; do
-  [ -f "$existing" ] || continue
-  unit_name=$(basename "$existing" .service)
-  vault_name="${unit_name#obsidian-sync-}"
-  if [[ ! " ${VAULT_NAMES[*]} " == *" $vault_name "* ]]; then
-    systemctl stop "$unit_name.service" 2>/dev/null || true
-    systemctl disable "$unit_name.service" 2>/dev/null || true
-    rm -f "$existing"
-    info "Removed orphaned service: $unit_name"
-  fi
-done
-
-# Build list of sync service names
-SYNC_SERVICES=""
-for name in "${VAULT_NAMES[@]}"; do
-  SYNC_SERVICES="$SYNC_SERVICES obsidian-sync-${name}.service"
-done
-SYNC_SERVICES="${SYNC_SERVICES# }"  # trim leading space
-
-# Generate one sync service per vault
-for name in "${VAULT_NAMES[@]}"; do
-  sed \
-    -e "s|__VAULT_NAME__|$name|g" \
-    -e "s|__VAULT_DIR__|$VAULT_BASE/$name|g" \
-    -e "s|__NODE_BIN_DIR__|$NODE_BIN_DIR|g" \
-    -e "s|__OB_BIN__|$OB_BIN|g" \
-    "$PROJECT_DIR/systemd/obsidian-sync.service.template" \
-    > "/etc/systemd/system/obsidian-sync-${name}.service"
-done
-
-# Generate MCP service, Caddy service, and target
-for tmpl in "$PROJECT_DIR/systemd/"*.template; do
-  unit=$(basename "$tmpl" .template)
-  # Skip sync template (handled per-vault above)
-  [[ "$unit" == "obsidian-sync" ]] && continue
-  sed \
-    -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
-    -e "s|__NODE_BIN_DIR__|$NODE_BIN_DIR|g" \
-    -e "s|__NODE_BIN__|$NODE_BIN|g" \
-    -e "s|__OB_BIN__|$OB_BIN|g" \
-    -e "s|__CADDY_BIN__|$CADDY_BIN|g" \
-    -e "s|__SYNC_SERVICES__|$SYNC_SERVICES|g" \
-    "$tmpl" > "/etc/systemd/system/$unit"
-done
-
-systemctl daemon-reload
-systemctl enable obsidian-mcp.target
-success "Services installed (${#VAULT_NAMES[@]} vault sync + MCP server + Caddy)."
 echo ""
 
-# --- Step 9: Start services ---
-info "Starting services..."
-systemctl start obsidian-mcp.target
-success "All services running."
-echo ""
-
-# --- Step 10: Print client config ---
+# --- Step 9: Print client config ---
 echo "========================================="
 echo ""
 echo "  Setup complete! Add this to your AI"
