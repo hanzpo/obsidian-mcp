@@ -13,6 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh
 Quickstart does this:
 
 - installs Node.js, `obsidian-headless`, and `cloudflared` if needed
+- downloads the repo even if `git` is not installed
 - walks you through `ob login`
 - lets you pick one or more Obsidian Sync vaults
 - performs the initial sync

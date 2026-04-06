@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REPO="https://github.com/hanzpo/obsidian-mcp.git"
+ARCHIVE_URL="https://github.com/hanzpo/obsidian-mcp/archive/refs/heads/main.tar.gz"
 INSTALL_DIR="$(pwd)/obsidian-mcp"
 OS="$(uname -s)"
 
@@ -203,6 +204,38 @@ install_ob() {
   success "obsidian-headless installed."
 }
 
+expose_installed_tools() {
+  local target_bin_dir
+  if [ "$MODE" = "quickstart" ]; then
+    target_bin_dir="$HOME/.local/bin"
+    mkdir -p "$target_bin_dir"
+    export PATH="$target_bin_dir:$PATH"
+  else
+    target_bin_dir="/usr/local/bin"
+    mkdir -p "$target_bin_dir"
+  fi
+
+  local tool
+  for tool in node npm npx ob; do
+    if command -v "$tool" &>/dev/null; then
+      local source_path
+      source_path="$(command -v "$tool")"
+      if [ "$source_path" != "$target_bin_dir/$tool" ]; then
+        ln -sf "$source_path" "$target_bin_dir/$tool"
+      fi
+    fi
+  done
+}
+
+download_repo_archive() {
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  curl -fsSL "$ARCHIVE_URL" -o "$tmpdir/obsidian-mcp.tar.gz"
+  mkdir -p "$INSTALL_DIR"
+  tar -xzf "$tmpdir/obsidian-mcp.tar.gz" --strip-components=1 -C "$INSTALL_DIR"
+  rm -rf "$tmpdir"
+}
+
 MODE="${OBSIDIAN_MCP_MODE:-}"
 if [ -z "$MODE" ]; then
   prompt_install_mode
@@ -240,15 +273,19 @@ else
   install_caddy
 fi
 install_ob
+expose_installed_tools
 
 echo ""
 
-if [ -d "$INSTALL_DIR/.git" ]; then
+if [ -d "$INSTALL_DIR/.git" ] && command -v git &>/dev/null; then
   info "Updating existing installation at $INSTALL_DIR..."
   git -C "$INSTALL_DIR" pull --ff-only
-else
+elif [ ! -e "$INSTALL_DIR" ] && command -v git &>/dev/null; then
   info "Downloading obsidian-mcp to $INSTALL_DIR..."
   git clone "$REPO" "$INSTALL_DIR"
+else
+  info "Downloading obsidian-mcp to $INSTALL_DIR..."
+  download_repo_archive
 fi
 
 echo ""
