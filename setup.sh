@@ -288,6 +288,7 @@ require_headless_sync() {
 
 configure_domain() {
   EXISTING_DOMAIN=""
+  PUBLIC_IP=""
   if [ -f "$PROJECT_DIR/.env" ]; then
     EXISTING_DOMAIN=$(grep '^DOMAIN=' "$PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2 || true)
   fi
@@ -315,6 +316,18 @@ configure_domain() {
     echo "    Please enter your domain or IP-based sslip.io domain manually."
     echo "    Example: 49-13-100-42.sslip.io"
     exit 1
+  fi
+
+  if [[ "$DOMAIN" != *.sslip.io ]]; then
+    if [ -n "$PUBLIC_IP" ]; then
+      info "DNS reminder for your custom domain"
+      echo "    Point an A record for $DOMAIN to $PUBLIC_IP before expecting HTTPS to work."
+    else
+      info "DNS reminder for your custom domain"
+      echo "    Point an A record for $DOMAIN to this server's public IP before expecting HTTPS to work."
+    fi
+    echo "    Caddy will obtain TLS automatically once DNS resolves and ports 80 and 443 are reachable."
+    echo ""
   fi
 
   echo ""
