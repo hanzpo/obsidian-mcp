@@ -9,11 +9,19 @@ import type { Config } from "../config.js";
 import { createMcpServer, createServices } from "../server.js";
 
 let tmpDir: string;
+let desktopWorkDir: string;
+let desktopPersonalDir: string;
 let server: McpServer;
 let client: Client;
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "obsidian-mcp-tools-"));
+  desktopWorkDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "obsidian-mcp-tools-work-")
+  );
+  desktopPersonalDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "obsidian-mcp-tools-personal-")
+  );
 
   // Create test vault structure
   await fs.mkdir(path.join(tmpDir, "Notes"), { recursive: true });
@@ -45,7 +53,7 @@ Working on [[Hello World]] integration.`
   );
 
   const config: Config = {
-    vaultPath: tmpDir,
+    vaults: { mode: "single", rootPath: tmpDir },
     apiKey: "test",
     port: 0,
     host: "127.0.0.1",
@@ -65,6 +73,8 @@ afterEach(async () => {
   await client.close();
   await server.close();
   await fs.rm(tmpDir, { recursive: true });
+  await fs.rm(desktopWorkDir, { recursive: true });
+  await fs.rm(desktopPersonalDir, { recursive: true });
 });
 
 describe("tools via MCP protocol", () => {
@@ -403,5 +413,83 @@ describe("tools via MCP protocol", () => {
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("Access denied");
+  });
+});
+
+describe("tools via MCP protocol with mounted desktop vaults", () => {
+  beforeEach(async () => {
+    await fs.mkdir(path.join(desktopWorkDir, "Projects"), { recursive: true });
+    await fs.mkdir(path.join(desktopPersonalDir, "Journal"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(desktopWorkDir, "Projects/roadmap.md"),
+      "# Roadmap\nShared launch plan."
+    );
+    await fs.writeFile(
+      path.join(desktopPersonalDir, "Journal/today.md"),
+      "Thinking about [[roadmap]]."
+    );
+  });
+
+  it("surfaces mounted vault aliases at the root", async () => {
+    const mountedConfig: Config = {
+      vaults: {
+        mode: "mounted",
+        mounts: {
+          personal: desktopPersonalDir,
+          work: desktopWorkDir,
+        },
+      },
+      apiKey: "test",
+      port: 0,
+      host: "127.0.0.1",
+    };
+
+    const mountedServer = createMcpServer(createServices(mountedConfig));
+    const mountedClient = new Client({
+      name: "mounted-test-client",
+      version: "1.0.0",
+    });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      mountedServer.connect(serverTransport),
+      mountedClient.connect(clientTransport),
+    ]);
+
+    try {
+      const listResult = await mountedClient.callTool({
+        name: "list_directory",
+        arguments: {},
+      });
+      const listText = (
+        listResult.content as Array<{ type: string; text: string }>
+      )[0].text;
+      expect(listText).toContain("personal");
+      expect(listText).toContain("work");
+
+      const readResult = await mountedClient.callTool({
+        name: "read_note",
+        arguments: { path: "work/Projects/roadmap.md" },
+      });
+      const readText = (
+        readResult.content as Array<{ type: string; text: string }>
+      )[0].text;
+      expect(readText).toContain("Shared launch plan.");
+
+      const linksResult = await mountedClient.callTool({
+        name: "get_links",
+        arguments: { path: "personal/Journal/today.md" },
+      });
+      const linksText = (
+        linksResult.content as Array<{ type: string; text: string }>
+      )[0].text;
+      expect(linksText).toContain("roadmap -> work/Projects/roadmap.md");
+    } finally {
+      await mountedClient.close();
+      await mountedServer.close();
+    }
   });
 });

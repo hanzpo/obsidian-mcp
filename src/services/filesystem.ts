@@ -1,21 +1,73 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { VaultConfig } from "../config.js";
 import { isPathAllowed } from "./path-filter.js";
 
+interface ResolvedTarget {
+  fullPath: string;
+  rootPath: string;
+}
+
+export interface DirectoryEntry {
+  name: string;
+  type: "file" | "directory";
+  path: string;
+}
+
 export class FileSystemService {
-  constructor(private vaultPath: string) {}
+  constructor(private vaults: VaultConfig) {}
+
+  private normalizePath(relativePath: string): string {
+    if (!relativePath || relativePath === ".") return "";
+    return relativePath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+  }
 
   resolvePath(relativePath: string): string {
-    const resolved = path.resolve(this.vaultPath, relativePath);
-    const rel = path.relative(this.vaultPath, resolved);
+    return this.resolveTarget(relativePath).fullPath;
+  }
+
+  private resolveSinglePath(
+    rootPath: string,
+    relativePath: string
+  ): ResolvedTarget {
+    const normalized = this.normalizePath(relativePath);
+    const resolved = path.resolve(rootPath, normalized || ".");
+    const rel = path.relative(rootPath, resolved);
     if (rel.startsWith("..") || path.isAbsolute(rel)) {
       throw new Error("Path traversal not allowed");
     }
-    // Allow vault root (empty relative path)
     if (rel !== "" && !isPathAllowed(rel)) {
       throw new Error(`Access denied: ${rel}`);
     }
-    return resolved;
+    return { fullPath: resolved, rootPath };
+  }
+
+  private getMountRoot(relativePath: string): { mountName: string; mountPath: string; innerPath: string } {
+    const normalized = this.normalizePath(relativePath);
+    if (!normalized) {
+      throw new Error("Path must include a vault name");
+    }
+
+    const [mountName, ...rest] = normalized.split("/");
+    const mountPath = this.vaults.mode === "mounted" ? this.vaults.mounts[mountName] : undefined;
+    if (!mountPath) {
+      throw new Error(`Unknown vault: ${mountName}`);
+    }
+
+    return {
+      mountName,
+      mountPath,
+      innerPath: rest.join("/"),
+    };
+  }
+
+  private resolveTarget(relativePath: string): ResolvedTarget {
+    if (this.vaults.mode === "single") {
+      return this.resolveSinglePath(this.vaults.rootPath, relativePath);
+    }
+
+    const { mountPath, innerPath } = this.getMountRoot(relativePath);
+    return this.resolveSinglePath(mountPath, innerPath);
   }
 
   async readFile(relativePath: string): Promise<string> {
@@ -50,31 +102,71 @@ export class FileSystemService {
   }
 
   async moveFile(oldPath: string, newPath: string): Promise<void> {
-    const fullOld = this.resolvePath(oldPath);
-    const fullNew = this.resolvePath(newPath);
-    await fs.mkdir(path.dirname(fullNew), { recursive: true });
-    await fs.rename(fullOld, fullNew);
+    const source = this.resolveTarget(oldPath);
+    const destination = this.resolveTarget(newPath);
+    await fs.mkdir(path.dirname(destination.fullPath), { recursive: true });
+
+    if (source.rootPath === destination.rootPath) {
+      await fs.rename(source.fullPath, destination.fullPath);
+      return;
+    }
+
+    await fs.copyFile(source.fullPath, destination.fullPath);
+    await fs.unlink(source.fullPath);
   }
 
   async listDirectory(
     relativePath: string,
     recursive: boolean
-  ): Promise<{ name: string; type: "file" | "directory"; path: string }[]> {
-    const full = this.resolvePath(relativePath || ".");
-    return this.walkDir(full, relativePath || "", recursive);
+  ): Promise<DirectoryEntry[]> {
+    if (this.vaults.mode === "single") {
+      const normalized = this.normalizePath(relativePath);
+      const full = this.resolvePath(normalized || ".");
+      return this.walkDir(full, normalized, recursive, this.vaults.rootPath);
+    }
+
+    const normalized = this.normalizePath(relativePath);
+    if (!normalized) {
+      const mounts: DirectoryEntry[] = Object.keys(this.vaults.mounts)
+        .sort()
+        .map((mountName) => ({
+          name: mountName,
+          type: "directory" as const,
+          path: mountName,
+        }));
+
+      if (!recursive) {
+        return mounts;
+      }
+
+      const nestedEntries = await Promise.all(
+        Object.entries(this.vaults.mounts).map(async ([mountName, mountPath]) =>
+          this.walkDir(mountPath, mountName, true, mountPath)
+        )
+      );
+
+      return mounts.concat(nestedEntries.flat());
+    }
+
+    const { mountName, mountPath, innerPath } = this.getMountRoot(normalized);
+    const full = this.resolvePath(normalized);
+    const displayPrefix = innerPath ? normalized : mountName;
+    return this.walkDir(full, displayPrefix, recursive, mountPath);
   }
 
   private async walkDir(
     absDir: string,
     relDir: string,
-    recursive: boolean
-  ): Promise<{ name: string; type: "file" | "directory"; path: string }[]> {
+    recursive: boolean,
+    rootPath: string
+  ): Promise<DirectoryEntry[]> {
     const entries = await fs.readdir(absDir, { withFileTypes: true });
-    const results: { name: string; type: "file" | "directory"; path: string }[] = [];
+    const results: DirectoryEntry[] = [];
 
     for (const entry of entries) {
       const entryRel = relDir ? `${relDir}/${entry.name}` : entry.name;
-      if (!isPathAllowed(entryRel)) continue;
+      const actualRel = path.relative(rootPath, path.join(absDir, entry.name));
+      if (!isPathAllowed(actualRel.replace(/\\/g, "/"))) continue;
 
       if (entry.isDirectory()) {
         results.push({ name: entry.name, type: "directory", path: entryRel });
@@ -82,7 +174,8 @@ export class FileSystemService {
           const children = await this.walkDir(
             path.join(absDir, entry.name),
             entryRel,
-            true
+            true,
+            rootPath
           );
           results.push(...children);
         }

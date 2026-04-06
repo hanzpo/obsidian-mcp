@@ -16,10 +16,10 @@ export interface Services {
 
 export function createServices(config: Config): Services {
   return {
-    fs: new FileSystemService(config.vaultPath),
+    fs: new FileSystemService(config.vaults),
     frontmatter: new FrontmatterService(),
-    search: new SearchService(config.vaultPath),
-    wikilinks: new WikilinkService(config.vaultPath),
+    search: new SearchService(config.vaults),
+    wikilinks: new WikilinkService(config.vaults),
   };
 }
 

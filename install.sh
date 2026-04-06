@@ -30,6 +30,7 @@ prompt_install_mode() {
   echo "     Best for: trying it fast on your own machine"
   echo "     Remote URL: yes"
   echo "     URL stability: temporary, changes if the tunnel restarts"
+  echo "     Vault access: local desktop vaults when available, headless sync otherwise"
   echo "     Setup: easiest, no sudo, no Caddy, no system services"
   echo "     Reliability: fine while this machine stays on and the processes keep running"
   echo ""

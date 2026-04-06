@@ -16,6 +16,10 @@ PORT="${PORT:-3456}"
 HOST="${HOST:-127.0.0.1}"
 MODE="quickstart"
 VAULT_MARKER=".obsidian-mcp-vault"
+VAULT_SOURCE="headless"
+VAULT_MAP_FILE="$RUNTIME_DIR/vault-map.json"
+DESKTOP_CONFIG_PATH=""
+DESKTOP_VAULT_LINES=()
 
 case "${1:-}" in
   ""|--quickstart)
@@ -45,6 +49,130 @@ check_command() {
 
 sanitize_name() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+}
+
+alias_exists() {
+  local candidate="$1"
+  local entry
+  for entry in "${SELECTED_VAULTS[@]:-}"; do
+    if [ "${entry%%|*}" = "$candidate" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+path_selected() {
+  local candidate="$1"
+  local entry
+  for entry in "${SELECTED_VAULTS[@]:-}"; do
+    if [ "${entry#*|}" = "$candidate" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+make_unique_alias() {
+  local preferred="$1"
+  local base
+  base="$(sanitize_name "$preferred")"
+  if [ -z "$base" ]; then
+    base="vault"
+  fi
+
+  local candidate="$base"
+  local suffix=2
+  while alias_exists "$candidate"; do
+    candidate="${base}-${suffix}"
+    suffix=$((suffix + 1))
+  done
+
+  printf '%s' "$candidate"
+}
+
+find_desktop_config() {
+  case "$OS" in
+    Darwin)
+      printf '%s' "$HOME/Library/Application Support/obsidian/obsidian.json"
+      ;;
+    Linux)
+      printf '%s' "${XDG_CONFIG_HOME:-$HOME/.config}/obsidian/obsidian.json"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+load_desktop_vaults() {
+  DESKTOP_CONFIG_PATH="$(find_desktop_config || true)"
+  if [ -z "$DESKTOP_CONFIG_PATH" ] || [ ! -f "$DESKTOP_CONFIG_PATH" ]; then
+    return 1
+  fi
+
+  DESKTOP_VAULT_LINES=()
+  while IFS=$'\t' read -r vault_name vault_path; do
+    [ -n "$vault_path" ] || continue
+    DESKTOP_VAULT_LINES+=("$vault_name|$vault_path")
+  done < <(
+    node - "$DESKTOP_CONFIG_PATH" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const configPath = process.argv[2];
+const raw = fs.readFileSync(configPath, "utf8");
+const parsed = JSON.parse(raw);
+const vaults = parsed.vaults || {};
+
+for (const entry of Object.values(vaults)) {
+  if (!entry || typeof entry.path !== "string") continue;
+  const vaultPath = entry.path;
+  if (!fs.existsSync(vaultPath) || !fs.statSync(vaultPath).isDirectory()) {
+    continue;
+  }
+  const name = path.basename(vaultPath) || vaultPath;
+  process.stdout.write(`${name}\t${vaultPath}\n`);
+}
+NODE
+  )
+
+  [ ${#DESKTOP_VAULT_LINES[@]} -gt 0 ]
+}
+
+select_quickstart_vault_source() {
+  if [ "$MODE" != "quickstart" ]; then
+    return
+  fi
+
+  if ! load_desktop_vaults; then
+    VAULT_SOURCE="headless"
+    return
+  fi
+
+  echo "Detected local Obsidian vaults from $DESKTOP_CONFIG_PATH"
+  echo ""
+  echo "Choose vault source:"
+  echo "  1) Desktop vaults (recommended on this device)"
+  echo "     Uses the local vault folders that the Obsidian app already manages."
+  echo "     Avoids running Headless Sync alongside desktop Sync on the same machine."
+  echo ""
+  echo "  2) Headless Sync vaults"
+  echo "     Use this on servers or on machines without local Obsidian-managed vaults."
+  echo ""
+
+  local source_choice
+  read -rp "Vault source [1]: " source_choice
+  case "${source_choice:-1}" in
+    1) VAULT_SOURCE="desktop" ;;
+    2) VAULT_SOURCE="headless" ;;
+    *)
+      error "Invalid choice. Enter 1 or 2."
+      exit 1
+      ;;
+  esac
+
+  echo ""
 }
 
 dir_has_contents() {
@@ -115,7 +243,6 @@ ensure_mode_permissions() {
 require_prerequisites() {
   info "Checking that required tools are installed..."
   check_command node "https://nodejs.org/ (v22+)"
-  check_command ob "npm install -g obsidian-headless"
   check_command openssl
   check_command curl
 
@@ -127,6 +254,10 @@ require_prerequisites() {
 
   success "All prerequisites found."
   echo ""
+}
+
+require_headless_sync() {
+  check_command ob "npm install -g obsidian-headless"
 }
 
 configure_domain() {
@@ -164,6 +295,7 @@ configure_domain() {
 }
 
 ensure_obsidian_login() {
+  require_headless_sync
   local ob_state_dir="$HOME/.obsidian-headless"
   if [ -e "$ob_state_dir" ] && [ ! -w "$ob_state_dir" ]; then
     error "obsidian-headless state directory is not writable: $ob_state_dir"
@@ -185,7 +317,7 @@ ensure_obsidian_login() {
   echo ""
 }
 
-setup_vaults() {
+setup_headless_vaults() {
   VAULT_BASE="$PROJECT_DIR/vaults"
   mkdir -p "$VAULT_BASE"
   VAULT_NAMES=()
@@ -262,6 +394,91 @@ setup_vaults() {
   echo ""
   info "Vaults configured: ${VAULT_NAMES[*]}"
   echo ""
+}
+
+write_vault_map_file() {
+  mkdir -p "$RUNTIME_DIR"
+  node - "$VAULT_MAP_FILE" "${SELECTED_VAULTS[@]}" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const outputPath = process.argv[2];
+const entries = process.argv.slice(3);
+const mounts = {};
+
+for (const entry of entries) {
+  const separator = entry.indexOf("|");
+  if (separator === -1) continue;
+  mounts[entry.slice(0, separator)] = entry.slice(separator + 1);
+}
+
+fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+fs.writeFileSync(outputPath, JSON.stringify(mounts, null, 2));
+NODE
+}
+
+setup_desktop_vaults() {
+  if [ ${#DESKTOP_VAULT_LINES[@]} -eq 0 ]; then
+    error "No desktop vaults were detected."
+    exit 1
+  fi
+
+  VAULT_NAMES=()
+  SELECTED_VAULTS=()
+
+  while true; do
+    echo "Available local Obsidian vaults:"
+    local i=1
+    local entry
+    for entry in "${DESKTOP_VAULT_LINES[@]}"; do
+      local vault_name="${entry%%|*}"
+      local vault_path="${entry#*|}"
+      echo "  $i) $vault_name"
+      echo "     $vault_path"
+      i=$((i + 1))
+    done
+    echo ""
+
+    local selection
+    read -rp "Pick a vault number: " selection
+    if ! [[ "$selection" =~ ^[0-9]+$ ]] || [ "$selection" -lt 1 ] || [ "$selection" -gt ${#DESKTOP_VAULT_LINES[@]} ]; then
+      error "Please choose a valid vault number."
+      exit 1
+    fi
+
+    entry="${DESKTOP_VAULT_LINES[$((selection - 1))]}"
+    local vault_name="${entry%%|*}"
+    local vault_path="${entry#*|}"
+    if path_selected "$vault_path"; then
+      warn "That vault is already selected. Pick another one."
+      echo ""
+      continue
+    fi
+    local alias_name
+    alias_name="$(make_unique_alias "$vault_name")"
+    SELECTED_VAULTS+=("$alias_name|$vault_path")
+    VAULT_NAMES+=("$alias_name")
+    success "Using desktop vault \"$vault_name\" as $alias_name/"
+
+    echo ""
+    read -rp "Add another desktop vault? [y/N]: " add_more
+    if [[ ! "${add_more:-n}" =~ ^[Yy] ]]; then
+      break
+    fi
+    echo ""
+  done
+
+  write_vault_map_file
+  info "Desktop vaults configured: ${VAULT_NAMES[*]}"
+  echo ""
+}
+
+setup_vaults() {
+  if [ "$VAULT_SOURCE" = "desktop" ]; then
+    setup_desktop_vaults
+  else
+    setup_headless_vaults
+  fi
 }
 
 configure_auth() {
@@ -371,15 +588,22 @@ start_quickstart_processes() {
   mkdir -p "$PID_DIR" "$LOG_DIR"
   stop_quickstart_processes
 
-  for name in "${VAULT_NAMES[@]}"; do
-    local sync_log="$LOG_DIR/obsidian-sync-$name.log"
-    nohup "$OB_BIN" sync --continuous --path "$VAULT_BASE/$name" >"$sync_log" 2>&1 &
-    echo $! > "$PID_DIR/obsidian-sync-$name.pid"
-  done
-
   local mcp_log="$LOG_DIR/obsidian-mcp.log"
-  nohup env API_KEY="$API_KEY" VAULT_PATH="$VAULT_BASE" PORT="$PORT" HOST="$HOST" \
-    "$NODE_BIN" "$PROJECT_DIR/dist/index.js" >"$mcp_log" 2>&1 &
+  local -a server_env
+  server_env=(env API_KEY="$API_KEY" PORT="$PORT" HOST="$HOST")
+
+  if [ "$VAULT_SOURCE" = "desktop" ]; then
+    server_env+=(VAULT_MAP_FILE="$VAULT_MAP_FILE")
+  else
+    for name in "${VAULT_NAMES[@]}"; do
+      local sync_log="$LOG_DIR/obsidian-sync-$name.log"
+      nohup "$OB_BIN" sync --continuous --path "$VAULT_BASE/$name" >"$sync_log" 2>&1 &
+      echo $! > "$PID_DIR/obsidian-sync-$name.pid"
+    done
+    server_env+=(VAULT_PATH="$VAULT_BASE")
+  fi
+
+  nohup "${server_env[@]}" "$NODE_BIN" "$PROJECT_DIR/dist/index.js" >"$mcp_log" 2>&1 &
   echo $! > "$PID_DIR/obsidian-mcp.pid"
   wait_for_local_server
 
@@ -627,6 +851,12 @@ print_quickstart_summary() {
   success "Your remote MCP endpoint is live at $QUICKSTART_URL"
   echo "    This URL is temporary. If cloudflared restarts or the machine reboots, expect a new URL."
   echo "    Good for first success and testing."
+  if [ "$VAULT_SOURCE" = "desktop" ]; then
+    echo "    Vault source: local Obsidian desktop vaults."
+    echo "    Sync stays managed by the Obsidian app on this device."
+  else
+    echo "    Vault source: obsidian-headless."
+  fi
   echo "    Logs: $LOG_DIR"
   echo "    Stop processes: make quickstart-stop"
 }
@@ -655,17 +885,22 @@ fi
 echo ""
 
 require_prerequisites
+select_quickstart_vault_source
 if [ "$MODE" = "production" ]; then
   configure_domain
 fi
-ensure_obsidian_login
+if [ "$MODE" = "production" ] || [ "$VAULT_SOURCE" = "headless" ]; then
+  ensure_obsidian_login
+fi
 setup_vaults
 configure_auth
 build_server
 
-OB_BIN=$(command -v ob)
 NODE_BIN=$(command -v node)
 NODE_BIN_DIR=$(dirname "$NODE_BIN")
+if [ "$MODE" = "production" ] || [ "$VAULT_SOURCE" = "headless" ]; then
+  OB_BIN=$(command -v ob)
+fi
 
 if [ "$MODE" = "quickstart" ]; then
   CLOUDFLARED_BIN=$(command -v cloudflared)

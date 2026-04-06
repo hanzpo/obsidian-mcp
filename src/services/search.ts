@@ -1,3 +1,4 @@
+import type { VaultConfig } from "../config.js";
 import { FileSystemService } from "./filesystem.js";
 
 export interface SearchResult {
@@ -21,8 +22,8 @@ export class SearchService {
   private cache: CachedDoc[] | null = null;
   private cacheTime = 0;
 
-  constructor(vaultPath: string) {
-    this.fs = new FileSystemService(vaultPath);
+  constructor(vaults: VaultConfig) {
+    this.fs = new FileSystemService(vaults);
   }
 
   invalidateCache(): void {

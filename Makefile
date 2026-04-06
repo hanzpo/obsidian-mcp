@@ -1,14 +1,41 @@
-.PHONY: quickstart quickstart-stop quickstart-status quickstart-logs install build start stop restart status logs logs-sync logs-mcp logs-caddy keygen update
+.DEFAULT_GOAL := help
+
+.PHONY: help build keygen \
+	quickstart quickstart-stop quickstart-status quickstart-logs \
+	prod-install prod-up prod-down prod-restart prod-status prod-logs prod-update \
+	install start stop restart status logs logs-sync logs-mcp logs-caddy update
 
 OS := $(shell uname -s)
+SERVICE ?= all
 
-# Detect vault names from vaults/ subdirectories
-VAULT_NAMES := $(notdir $(wildcard vaults/*/))
-SYNC_SERVICES := $(foreach name,$(VAULT_NAMES),obsidian-sync-$(name).service)
+help:
+	@echo "obsidian-mcp commands"
+	@echo ""
+	@echo "Quickstart"
+	@echo "  make quickstart         Start or rerun the fast remote setup flow"
+	@echo "  make quickstart-status  Show quickstart background processes"
+	@echo "  make quickstart-logs    Tail quickstart logs"
+	@echo "  make quickstart-stop    Stop quickstart background processes"
+	@echo ""
+	@echo "Production"
+	@echo "  make prod-install       Run the production setup flow"
+	@echo "  make prod-up            Start production services"
+	@echo "  make prod-down          Stop production services"
+	@echo "  make prod-restart       Restart production services"
+	@echo "  make prod-status        Show production service status"
+	@echo "  make prod-logs          Tail production logs (SERVICE=all|sync|mcp|caddy)"
+	@echo "  make prod-update        Pull latest changes and rerun production setup"
+	@echo ""
+	@echo "Other"
+	@echo "  make build             Install deps and compile TypeScript"
+	@echo "  make keygen            Generate or rotate the API key"
 
 build:
 	npm ci --silent
 	npm run build --silent
+
+keygen:
+	./keygen.sh
 
 quickstart:
 	PATH="$(HOME)/.local/bin:$$PATH" ./setup.sh --quickstart
@@ -38,115 +65,87 @@ quickstart-status:
 quickstart-logs:
 	tail -f .obsidian-mcp/logs/*.log
 
-install: build
-ifeq ($(OS),Darwin)
-	@echo "On macOS, run sudo ./setup.sh to install services."
-else
-	mkdir -p /etc/systemd/system
-	@PROJECT_DIR=$$(pwd) && \
-	OB_BIN=$$(command -v ob) && \
-	NODE_BIN=$$(command -v node) && \
-	NODE_BIN_DIR=$$(dirname $$NODE_BIN) && \
-	CADDY_BIN=$$(command -v caddy) && \
-	SYNC_SERVICES="$(SYNC_SERVICES)" && \
-	for name in $(VAULT_NAMES); do \
-		sed -e "s|__VAULT_NAME__|$$name|g" \
-		    -e "s|__VAULT_DIR__|$$PROJECT_DIR/vaults/$$name|g" \
-		    -e "s|__NODE_BIN_DIR__|$$NODE_BIN_DIR|g" \
-		    -e "s|__OB_BIN__|$$OB_BIN|g" \
-		    systemd/obsidian-sync.service.template \
-		    > /etc/systemd/system/obsidian-sync-$$name.service; \
-	done && \
-	for tmpl in systemd/obsidian-mcp.service.template systemd/caddy.service.template systemd/obsidian-mcp.target.template; do \
-		unit=$$(basename $$tmpl .template); \
-		sed -e "s|__PROJECT_DIR__|$$PROJECT_DIR|g" \
-		    -e "s|__NODE_BIN_DIR__|$$NODE_BIN_DIR|g" \
-		    -e "s|__NODE_BIN__|$$NODE_BIN|g" \
-		    -e "s|__OB_BIN__|$$OB_BIN|g" \
-		    -e "s|__CADDY_BIN__|$$CADDY_BIN|g" \
-		    -e "s|__SYNC_SERVICES__|$$SYNC_SERVICES|g" \
-		    $$tmpl > /etc/systemd/system/$$unit; \
-	done
-	systemctl daemon-reload
-	systemctl enable obsidian-mcp.target
-endif
+prod-install:
+	sudo ./setup.sh --production
 
 ifeq ($(OS),Darwin)
-start:
-	launchctl bootstrap system /Library/LaunchDaemons/com.obsidian-mcp.server.plist 2>/dev/null || true
-	launchctl bootstrap system /Library/LaunchDaemons/com.obsidian-mcp.caddy.plist 2>/dev/null || true
-	@for name in $(VAULT_NAMES); do \
-		launchctl bootstrap system /Library/LaunchDaemons/com.obsidian-mcp.sync-$$name.plist 2>/dev/null || true; \
+prod-up:
+	sudo launchctl bootstrap system /Library/LaunchDaemons/com.obsidian-mcp.server.plist 2>/dev/null || true
+	sudo launchctl bootstrap system /Library/LaunchDaemons/com.obsidian-mcp.caddy.plist 2>/dev/null || true
+	@for plist in /Library/LaunchDaemons/com.obsidian-mcp.sync-*.plist; do \
+		[ -f "$$plist" ] || continue; \
+		sudo launchctl bootstrap system "$$plist" 2>/dev/null || true; \
 	done
 
-stop:
-	launchctl bootout system /Library/LaunchDaemons/com.obsidian-mcp.server.plist 2>/dev/null || true
-	launchctl bootout system /Library/LaunchDaemons/com.obsidian-mcp.caddy.plist 2>/dev/null || true
-	@for name in $(VAULT_NAMES); do \
-		launchctl bootout system /Library/LaunchDaemons/com.obsidian-mcp.sync-$$name.plist 2>/dev/null || true; \
+prod-down:
+	sudo launchctl bootout system /Library/LaunchDaemons/com.obsidian-mcp.server.plist 2>/dev/null || true
+	sudo launchctl bootout system /Library/LaunchDaemons/com.obsidian-mcp.caddy.plist 2>/dev/null || true
+	@for plist in /Library/LaunchDaemons/com.obsidian-mcp.sync-*.plist; do \
+		[ -f "$$plist" ] || continue; \
+		sudo launchctl bootout system "$$plist" 2>/dev/null || true; \
 	done
 
-restart: stop start
+prod-restart: prod-down prod-up
 
-status:
-	@launchctl print system/com.obsidian-mcp.server 2>/dev/null || echo "MCP server: not running"
-	@launchctl print system/com.obsidian-mcp.caddy 2>/dev/null || echo "Caddy: not running"
-	@for name in $(VAULT_NAMES); do \
-		launchctl print system/com.obsidian-mcp.sync-$$name 2>/dev/null || echo "Sync $$name: not running"; \
+prod-status:
+	@sudo launchctl print system/com.obsidian-mcp.server 2>/dev/null || echo "MCP server: not running"
+	@sudo launchctl print system/com.obsidian-mcp.caddy 2>/dev/null || echo "Caddy: not running"
+	@for label in $$(find /Library/LaunchDaemons -maxdepth 1 -name 'com.obsidian-mcp.sync-*.plist' -exec basename {} .plist \; 2>/dev/null); do \
+		sudo launchctl print system/$$label 2>/dev/null || echo "$$label: not running"; \
 	done
 
-logs:
-	tail -f /tmp/obsidian-mcp.log /tmp/obsidian-caddy.log /tmp/obsidian-sync-*.log
-
-logs-sync:
-	tail -f /tmp/obsidian-sync-*.log
-
-logs-mcp:
-	tail -f /tmp/obsidian-mcp.log
-
-logs-caddy:
-	tail -f /tmp/obsidian-caddy.log
-
+prod-logs:
+	@case "$(SERVICE)" in \
+		all) tail -f /tmp/obsidian-mcp.log /tmp/obsidian-caddy.log /tmp/obsidian-sync-*.log ;; \
+		sync) tail -f /tmp/obsidian-sync-*.log ;; \
+		mcp) tail -f /tmp/obsidian-mcp.log ;; \
+		caddy) tail -f /tmp/obsidian-caddy.log ;; \
+		*) echo "Unknown SERVICE=$(SERVICE). Use all, sync, mcp, or caddy."; exit 1 ;; \
+	esac
 else
-start:
-	systemctl start obsidian-mcp.target
+prod-up:
+	sudo systemctl start obsidian-mcp.target
 
-stop:
-	systemctl stop obsidian-mcp.target
+prod-down:
+	sudo systemctl stop obsidian-mcp.target
 
-restart:
-	systemctl restart obsidian-mcp.target
+prod-restart:
+	sudo systemctl restart obsidian-mcp.target
 
-status:
-	@for svc in $(SYNC_SERVICES); do \
-		systemctl status $$svc --no-pager || true; \
+prod-status:
+	@for svc in $$(systemctl list-unit-files 'obsidian-sync-*.service' --no-legend 2>/dev/null | awk '{print $$1}'); do \
+		sudo systemctl status "$$svc" --no-pager || true; \
 		echo ""; \
 	done
-	@systemctl status obsidian-mcp.service --no-pager || true
+	@sudo systemctl status obsidian-mcp.service --no-pager || true
 	@echo ""
-	@systemctl status caddy.service --no-pager || true
+	@sudo systemctl status caddy.service --no-pager || true
 
-logs:
-	journalctl -u 'obsidian-sync-*' -u obsidian-mcp -u caddy -f
-
-logs-sync:
-	journalctl -u 'obsidian-sync-*' -f
-
-logs-mcp:
-	journalctl -u obsidian-mcp -f
-
-logs-caddy:
-	journalctl -u caddy -f
+prod-logs:
+	@case "$(SERVICE)" in \
+		all) sudo journalctl -u 'obsidian-sync-*' -u obsidian-mcp -u caddy -f ;; \
+		sync) sudo journalctl -u 'obsidian-sync-*' -f ;; \
+		mcp) sudo journalctl -u obsidian-mcp -f ;; \
+		caddy) sudo journalctl -u caddy -f ;; \
+		*) echo "Unknown SERVICE=$(SERVICE). Use all, sync, mcp, or caddy."; exit 1 ;; \
+	esac
 endif
 
-keygen:
-	./keygen.sh
-
-update:
+prod-update:
 	git pull
-	$(MAKE) install
-ifeq ($(OS),Darwin)
-	$(MAKE) restart
-else
-	systemctl restart obsidian-mcp.target
-endif
+	sudo ./setup.sh --production
+
+# Compatibility aliases
+install: prod-install
+start: prod-up
+stop: prod-down
+restart: prod-restart
+status: prod-status
+logs: prod-logs
+logs-sync:
+	$(MAKE) prod-logs SERVICE=sync
+logs-mcp:
+	$(MAKE) prod-logs SERVICE=mcp
+logs-caddy:
+	$(MAKE) prod-logs SERVICE=caddy
+update: prod-update

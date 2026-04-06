@@ -86,7 +86,15 @@ app.listen(config.port, config.host, () => {
   console.log(
     `Obsidian MCP server listening on ${config.host}:${config.port}`
   );
-  console.log(`Vault: ${config.vaultPath}`);
+  if (config.vaults.mode === "single") {
+    console.log(`Vault root: ${config.vaults.rootPath}`);
+  } else {
+    console.log(
+      `Mounted vaults: ${Object.entries(config.vaults.mounts)
+        .map(([name, vaultPath]) => `${name}=${vaultPath}`)
+        .join(", ")}`
+    );
+  }
 });
 
 process.on("SIGINT", async () => {

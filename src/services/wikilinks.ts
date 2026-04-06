@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { VaultConfig } from "../config.js";
 import { FileSystemService } from "./filesystem.js";
 
 export interface LinkInfo {
@@ -20,8 +21,8 @@ export class WikilinkService {
   private fileCache: string[] | null = null;
   private cacheTime = 0;
 
-  constructor(vaultPath: string) {
-    this.fs = new FileSystemService(vaultPath);
+  constructor(vaults: VaultConfig) {
+    this.fs = new FileSystemService(vaults);
   }
 
   invalidateCache(): void {

@@ -1,6 +1,6 @@
 # obsidian-mcp
 
-Remote MCP server that gives AI agents read/write access to your Obsidian vaults by syncing them with [obsidian-headless](https://github.com/obsidianmd/obsidian-headless).
+Remote MCP server that gives AI agents read/write access to your Obsidian vaults. On personal machines it can mount the real local vault folders used by the Obsidian app; on servers it falls back to syncing with [obsidian-headless](https://github.com/obsidianmd/obsidian-headless).
 
 ## Fastest Path
 
@@ -15,10 +15,12 @@ Quickstart does this:
 - installs Node.js, `obsidian-headless`, and `cloudflared` if needed
 - downloads the repo even if `git` is not installed
 - installs into a dedicated app directory instead of assuming the current working directory is safe
-- walks you through `ob login`
-- lets you pick one or more Obsidian Sync vaults
-- performs the initial sync in `pull-only` mode, then switches to normal bidirectional sync
-- starts the MCP server and continuous sync in the background
+- on laptops and desktops, detects local Obsidian app vaults and can use them directly
+- on servers, falls back to `obsidian-headless`
+- if headless mode is used, walks you through `ob login`
+- if headless mode is used, performs the initial sync in `pull-only` mode, then switches to normal bidirectional sync
+- starts the MCP server in the background
+- starts continuous sync in the background only when headless mode is used
 - opens a public HTTPS tunnel and prints ready-to-paste MCP config
 
 No sudo, no Caddy, no system services. The tradeoff is that the public tunnel URL is temporary and changes each time you rerun quickstart.
@@ -42,8 +44,9 @@ AI Agent
     cloudflared tunnel
       --> local MCP server
             |
-            --> synced vaults on disk
-            --> ob sync --continuous
+            --> desktop vaults on disk
+            or
+            --> synced vaults on disk via ob sync --continuous
 ```
 
 Use when you want:
@@ -56,6 +59,7 @@ Tradeoffs:
 
 - easiest path from zero to working remote MCP
 - works well on a laptop, desktop, or home server
+- on personal machines, it can use the Obsidian app's real vault folders directly
 - URL is temporary and usually changes if the tunnel restarts
 - depends on this machine staying on and the background processes staying alive
 - setup refuses to sync into a non-empty unmanaged vault directory
@@ -109,8 +113,9 @@ AI Agent
 
 ## Prerequisites
 
-- an [Obsidian Sync](https://obsidian.md/sync) subscription
 - a machine that can stay online while you use the MCP server
+- for server or headless mode: an [Obsidian Sync](https://obsidian.md/sync) subscription
+- for desktop-vault quickstart on your own machine: a local Obsidian app install with at least one vault already configured
 
 Production mode also benefits from a server or machine with a reachable public IP. Quickstart works well even when you do not want to manage domains and TLS yourself.
 
@@ -127,15 +132,17 @@ cd obsidian-mcp
 
 2. Install dependencies:
 
-```bash
-npm install -g obsidian-headless
-```
-
 Quickstart also needs:
 
 ```bash
 brew install cloudflared              # macOS
 # or install cloudflared another way on Linux
+```
+
+Headless/server mode also needs:
+
+```bash
+npm install -g obsidian-headless
 ```
 
 Production also needs:
@@ -188,26 +195,38 @@ Both modes print a ready-to-paste MCP config at the end. It looks like this:
 | `get_vault_stats` | Vault statistics and recent files |
 | `get_links` | Outgoing wikilinks and backlinks |
 
-## Operations
+## Commands
+
+Start with:
+
+```bash
+make
+```
+
+That prints the supported commands.
+
+Recommended commands:
 
 | Command | What it does |
 |---------|-------------|
-| `make quickstart` | Run quickstart flow |
+| `make quickstart` | Run the fast remote setup flow |
 | `make quickstart-status` | Show quickstart background processes |
 | `make quickstart-logs` | Tail quickstart logs |
 | `make quickstart-stop` | Stop quickstart processes |
+| `make prod-install` | Run the production setup flow with `sudo` |
+| `make prod-up` | Start production services |
+| `make prod-down` | Stop production services |
+| `make prod-restart` | Restart production services |
+| `make prod-status` | Check production service status |
+| `make prod-logs` | Tail production logs |
+| `make prod-logs SERVICE=sync` | Tail only sync logs |
+| `make prod-logs SERVICE=mcp` | Tail only MCP server logs |
+| `make prod-logs SERVICE=caddy` | Tail only Caddy logs |
+| `make prod-update` | Pull latest changes and rerun production setup with `sudo` |
 | `make build` | Install deps and compile TypeScript |
-| `make install` | Production build + generate service units + enable services |
-| `make start` | Start production services |
-| `make stop` | Stop production services |
-| `make restart` | Restart production services |
-| `make status` | Check production service status |
-| `make logs` | Tail production logs |
-| `make logs-sync` | Tail production sync logs |
-| `make logs-mcp` | Tail production MCP server logs |
-| `make logs-caddy` | Tail production Caddy logs |
-| `make keygen` | Generate or rotate API key |
-| `make update` | Pull latest, rebuild, reinstall, and restart |
+| `make keygen` | Generate or rotate the API key |
+
+Legacy aliases like `make install`, `make start`, and `make logs-sync` still work, but the `prod-*` commands are the preferred interface.
 
 ## Troubleshooting
 
@@ -224,7 +243,7 @@ Look at `.obsidian-mcp/logs/cloudflared.log`.
 ```bash
 ob sync-list-remote
 make quickstart-logs     # quickstart
-make logs-sync           # production
+make prod-logs SERVICE=sync
 ```
 
 If `ob login` keeps asking for credentials, run it again and rerun setup.

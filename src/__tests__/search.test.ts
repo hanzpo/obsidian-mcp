@@ -9,7 +9,7 @@ let service: SearchService;
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "obsidian-mcp-search-"));
-  service = new SearchService(tmpDir);
+  service = new SearchService({ mode: "single", rootPath: tmpDir });
 
   await fs.mkdir(path.join(tmpDir, "Projects"), { recursive: true });
   await fs.writeFile(

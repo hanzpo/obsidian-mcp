@@ -9,7 +9,7 @@ let service: WikilinkService;
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "obsidian-mcp-links-"));
-  service = new WikilinkService(tmpDir);
+  service = new WikilinkService({ mode: "single", rootPath: tmpDir });
 
   await fs.mkdir(path.join(tmpDir, "Projects"), { recursive: true });
   await fs.mkdir(path.join(tmpDir, "People"), { recursive: true });
