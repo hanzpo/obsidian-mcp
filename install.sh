@@ -7,10 +7,46 @@ INSTALL_DIR="${OBSIDIAN_MCP_INSTALL_DIR:-}"
 OS="$(uname -s)"
 DESKTOP_VAULT_COUNT=0
 
-info()    { echo -e "\033[1;34m==>\033[0m $*"; }
-success() { echo -e "\033[1;32m==>\033[0m $*"; }
-warn()    { echo -e "\033[1;33m==>\033[0m $*"; }
-error()   { echo -e "\033[1;31m==>\033[0m $*" >&2; }
+BLUE=$'\033[1;34m'
+GREEN=$'\033[1;32m'
+YELLOW=$'\033[1;33m'
+RED=$'\033[1;31m'
+CYAN=$'\033[1;36m'
+BOLD=$'\033[1m'
+DIM=$'\033[2m'
+RESET=$'\033[0m'
+
+info()    { echo -e "${BLUE}==>${RESET} $*"; }
+success() { echo -e "${GREEN}==>${RESET} $*"; }
+warn()    { echo -e "${YELLOW}==>${RESET} $*"; }
+error()   { echo -e "${RED}==>${RESET} $*" >&2; }
+
+section() {
+  echo ""
+  echo -e "${BOLD}${CYAN}$1${RESET}"
+}
+
+subtle() {
+  echo -e "${DIM}$*${RESET}"
+}
+
+emphasize() {
+  echo -e "${BOLD}$*${RESET}"
+}
+
+bullet() {
+  echo -e "  ${CYAN}•${RESET} $*"
+}
+
+note_block() {
+  local title="$1"
+  shift
+  echo ""
+  echo -e "${BOLD}${title}${RESET}"
+  for line in "$@"; do
+    bullet "$line"
+  done
+}
 
 read_prompt() {
   local prompt="$1"
@@ -24,27 +60,25 @@ read_prompt() {
 }
 
 prompt_install_mode() {
+  section "Choose Setup Mode"
+  emphasize "  1) Quickstart"
+  bullet "Best for: trying it fast on your own machine"
+  bullet "Remote URL: yes"
+  bullet "URL stability: temporary, changes if the tunnel restarts"
+  bullet "Vault access: local desktop vaults when available, headless sync otherwise"
+  bullet "Setup: easiest, no sudo, no Caddy, no system services"
+  bullet "Reliability: fine while this machine stays on and the processes keep running"
   echo ""
-  echo "Choose setup mode:"
-  echo ""
-  echo "  1) Quickstart"
-  echo "     Best for: trying it fast on your own machine"
-  echo "     Remote URL: yes"
-  echo "     URL stability: temporary, changes if the tunnel restarts"
-  echo "     Vault access: local desktop vaults when available, headless sync otherwise"
-  echo "     Setup: easiest, no sudo, no Caddy, no system services"
-  echo "     Reliability: fine while this machine stays on and the processes keep running"
-  echo ""
-  echo "  2) Production"
-  echo "     Best for: a stable always-on endpoint"
-  echo "     Remote URL: yes"
-  echo "     URL stability: stable domain"
-  echo "     Setup: more work, requires sudo/root, Caddy, and system services"
-  echo "     Reliability: best for long-term self-hosting"
+  emphasize "  2) Production"
+  bullet "Best for: a stable always-on endpoint"
+  bullet "Remote URL: yes"
+  bullet "URL stability: stable domain"
+  bullet "Setup: more work, requires sudo/root, Caddy, and system services"
+  bullet "Reliability: best for long-term self-hosting"
   echo ""
 
   local choice
-  choice="$(read_prompt "Mode [1]: ")"
+  choice="$(read_prompt "Select mode [1]: ")"
   case "${choice:-1}" in
     1) MODE="quickstart" ;;
     2) MODE="production" ;;
@@ -149,10 +183,9 @@ prompt_install_dir() {
     default_dir="/opt/obsidian-mcp"
   fi
 
-  echo ""
-  echo "Install location:"
-  echo "  Default: $default_dir"
-  echo "  Safety: setup refuses to install into an unrelated non-empty directory."
+  section "Install Location"
+  bullet "Default: $default_dir"
+  bullet "Safety: setup refuses to install into an unrelated non-empty directory"
   echo ""
 
   local chosen_dir
@@ -192,7 +225,28 @@ ensure_safe_install_dir() {
   fi
 }
 
+print_installer_banner() {
+  echo ""
+  echo -e "${BOLD}${CYAN}obsidian-mcp installer${RESET}"
+  echo -e "${DIM}======================${RESET}"
+  bullet "Install dir: $INSTALL_DIR"
+
+  if [ "$MODE" = "quickstart" ]; then
+    note_block "Quickstart Summary" \
+      "Installs obsidian-mcp, Node.js, and cloudflared" \
+      "Installs obsidian-headless only if this machine does not already have local Obsidian vaults" \
+      "Gives you a public remote MCP URL fast" \
+      "Tradeoff: easiest setup, but the URL is temporary"
+  else
+    note_block "Production Summary" \
+      "Installs obsidian-mcp, Node.js, Caddy, and obsidian-headless" \
+      "Registers system services and configures a stable HTTPS endpoint" \
+      "Tradeoff: more setup, but better long-term durability"
+  fi
+}
+
 install_node() {
+  section "Node.js"
   if command -v node &>/dev/null; then
     NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
     if [ "$NODE_VERSION" -ge 22 ]; then
@@ -214,6 +268,7 @@ install_node() {
 }
 
 install_caddy() {
+  section "Caddy"
   if command -v caddy &>/dev/null; then
     success "Caddy already installed."
     return
@@ -289,6 +344,7 @@ download_cloudflared_binary() {
       ;;
   esac
 
+  section "cloudflared"
   info "Installing cloudflared (quickstart tunnel)..."
 
   if [[ "$url" == *.tgz ]]; then
@@ -308,6 +364,7 @@ download_cloudflared_binary() {
 }
 
 install_cloudflared() {
+  section "cloudflared"
   if command -v cloudflared &>/dev/null; then
     success "cloudflared already installed."
     return
@@ -324,6 +381,7 @@ install_cloudflared() {
 }
 
 install_ob() {
+  section "obsidian-headless"
   if command -v ob &>/dev/null; then
     success "obsidian-headless already installed."
     return
@@ -382,33 +440,23 @@ esac
 ensure_mode_permissions
 prompt_install_dir
 ensure_safe_install_dir
-
-echo ""
-echo "  obsidian-mcp installer"
-echo "  ======================"
-echo ""
-echo "  Install dir: $INSTALL_DIR"
-echo ""
-if [ "$MODE" = "quickstart" ]; then
-  echo "  This will install obsidian-mcp, Node.js, cloudflared, and"
-  echo "  obsidian-headless only if this machine does not already have local Obsidian vaults."
-  echo "  Tradeoff: easiest setup, but the URL is temporary."
-else
-  echo "  This will install obsidian-mcp and its production dependencies"
-  echo "  (Node.js, Caddy, obsidian-headless), then register system services."
-  echo "  Tradeoff: more setup, but you get a stable long-lived endpoint."
-fi
-echo ""
+print_installer_banner
 
 install_node
 detect_desktop_vaults || true
 
 if [ "$MODE" = "quickstart" ]; then
   if [ "$DESKTOP_VAULT_COUNT" -gt 0 ]; then
-    info "Detected ${DESKTOP_VAULT_COUNT} local Obsidian vault(s). Quickstart will use the desktop vault folders directly."
-    echo "    obsidian-headless will not be installed on this machine."
+    section "Vault Mode"
+    success "Detected ${DESKTOP_VAULT_COUNT} local Obsidian vault(s)."
+    bullet "Quickstart will use the desktop vault folders directly"
+    bullet "obsidian-headless will NOT be installed on this machine"
+    bullet "This avoids sync conflicts with the Obsidian desktop app"
   else
-    info "No local Obsidian vaults detected. Quickstart will use obsidian-headless."
+    section "Vault Mode"
+    warn "No local Obsidian vaults detected."
+    bullet "Quickstart will use obsidian-headless on this machine"
+    bullet "You will be asked to log into Obsidian during setup"
   fi
   install_cloudflared
 else
@@ -425,7 +473,7 @@ if [ "$MODE" = "production" ] || [ "$DESKTOP_VAULT_COUNT" -eq 0 ]; then
 fi
 expose_installed_tools
 
-echo ""
+section "Repository"
 
 if [ -d "$INSTALL_DIR/.git" ] && command -v git &>/dev/null; then
   info "Updating existing installation at $INSTALL_DIR..."
@@ -438,6 +486,7 @@ else
   download_repo_archive
 fi
 
-echo ""
+section "Next Step"
+subtle "Handing off to setup..."
 
 exec "$INSTALL_DIR/setup.sh" "--$MODE"

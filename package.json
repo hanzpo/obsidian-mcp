@@ -5,13 +5,22 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
+    "help": "./cli.sh help",
+    "setup": "./cli.sh setup",
+    "status": "./cli.sh status",
+    "logs": "./cli.sh logs",
+    "stop": "./cli.sh stop",
+    "restart": "./cli.sh restart",
+    "update": "./cli.sh update",
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx --watch src/index.ts",
     "lint": "eslint src/",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "tsc --noEmit && eslint src/ && vitest run"
+    "check": "tsc --noEmit && eslint src/ && vitest run",
+    "keygen": "./keygen.sh",
+    "uninstall": "./uninstall.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

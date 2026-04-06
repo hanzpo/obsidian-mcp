@@ -70,10 +70,10 @@ Tradeoffs:
 Manage quickstart processes:
 
 ```bash
-make quickstart         # rerun quickstart flow
-make quickstart-status  # show running background processes
-make quickstart-logs    # tail quickstart logs
-make quickstart-stop    # stop quickstart background processes
+npm run setup
+npm run status
+npm run logs
+npm run stop
 ```
 
 ### 2. Production
@@ -157,9 +157,7 @@ Production also needs:
 3. Run setup:
 
 ```bash
-./setup.sh --quickstart
-# or
-sudo ./setup.sh --production
+npm run setup
 ```
 
 ## Client Config
@@ -203,40 +201,30 @@ Both modes print a ready-to-paste MCP config at the end. It looks like this:
 Start with:
 
 ```bash
-make
+npm run help
 ```
-
-That prints the supported commands.
 
 Recommended commands:
 
 | Command | What it does |
 |---------|-------------|
-| `make quickstart` | Run the fast remote setup flow |
-| `make quickstart-status` | Show quickstart background processes |
-| `make quickstart-logs` | Tail quickstart logs |
-| `make quickstart-stop` | Stop quickstart processes |
-| `make prod-install` | Run the production setup flow with `sudo` |
-| `make prod-up` | Start production services |
-| `make prod-down` | Stop production services |
-| `make prod-restart` | Restart production services |
-| `make prod-status` | Check production service status |
-| `make prod-logs` | Tail production logs |
-| `make prod-logs SERVICE=sync` | Tail only sync logs |
-| `make prod-logs SERVICE=mcp` | Tail only MCP server logs |
-| `make prod-logs SERVICE=caddy` | Tail only Caddy logs |
-| `make prod-update` | Pull latest changes and rerun production setup with `sudo` |
-| `make build` | Install deps and compile TypeScript |
-| `make keygen` | Generate or rotate the API key |
-
-Legacy aliases like `make install`, `make start`, and `make logs-sync` still work, but the `prod-*` commands are the preferred interface.
+| `npm run setup` | Interactive setup. Choose quickstart or production |
+| `npm run status` | Show status for the active mode |
+| `npm run logs` | Tail logs for the active mode |
+| `npm run stop` | Stop the active mode |
+| `npm run restart` | Restart the active mode |
+| `npm run update` | Pull latest changes and rerun setup for the active mode |
+| `npm run build` | Compile TypeScript |
+| `npm run check` | Type-check, lint, and test |
+| `npm run keygen` | Generate or rotate the API key |
+| `npm run uninstall` | Safely remove obsidian-mcp setup from this machine |
 
 ## Troubleshooting
 
 **Quickstart tunnel did not come up**
 
 ```bash
-make quickstart-logs
+npm run logs
 ```
 
 Look at `.obsidian-mcp/logs/cloudflared.log`.
@@ -245,8 +233,7 @@ Look at `.obsidian-mcp/logs/cloudflared.log`.
 
 ```bash
 ob sync-list-remote
-make quickstart-logs     # quickstart
-make prod-logs SERVICE=sync
+npm run logs
 ```
 
 If `ob login` keeps asking for credentials, run it again and rerun setup.
@@ -263,6 +250,19 @@ ufw allow 443/tcp
 **Re-running setup**
 
 `setup.sh` is safe to re-run. In quickstart it restarts the background MCP, sync, and tunnel processes. In production it refreshes services and configuration.
+
+**Start over safely**
+
+```bash
+npm run uninstall
+```
+
+That removes obsidian-mcp's generated config and services from this machine after an explicit confirmation prompt, but intentionally preserves:
+
+- your real Obsidian desktop vault folders
+- synced vault contents under `vaults/`
+- `~/.obsidian-headless`
+- remote Obsidian Sync state
 
 ## Development
 

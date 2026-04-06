@@ -12,9 +12,10 @@ export PATH="$HOME/.local/bin:$PATH"
 RUNTIME_DIR="$PROJECT_DIR/.obsidian-mcp"
 PID_DIR="$RUNTIME_DIR/pids"
 LOG_DIR="$RUNTIME_DIR/logs"
+MODE_FILE="$RUNTIME_DIR/mode"
 PORT="${PORT:-3456}"
 HOST="${HOST:-127.0.0.1}"
-MODE="quickstart"
+MODE=""
 VAULT_MARKER=".obsidian-mcp-vault"
 VAULT_SOURCE="headless"
 VAULT_MAP_FILE="$RUNTIME_DIR/vault-map.json"
@@ -22,7 +23,10 @@ DESKTOP_CONFIG_PATH=""
 DESKTOP_VAULT_LINES=()
 
 case "${1:-}" in
-  ""|--quickstart)
+  "")
+    MODE=""
+    ;;
+  --quickstart)
     MODE="quickstart"
     ;;
   --production)
@@ -38,6 +42,29 @@ info()    { echo -e "\033[1;34m==>\033[0m $*"; }
 success() { echo -e "\033[1;32m==>\033[0m $*"; }
 warn()    { echo -e "\033[1;33m==>\033[0m $*"; }
 error()   { echo -e "\033[1;31m==>\033[0m $*" >&2; }
+
+prompt_setup_mode() {
+  echo "Choose setup mode:"
+  echo ""
+  echo "  1) Quickstart"
+  echo "     Fastest path. Temporary public URL. Best on your own machine."
+  echo ""
+  echo "  2) Production"
+  echo "     Stable endpoint with services + Caddy. Best on a separate server-style machine."
+  echo ""
+
+  local choice
+  read -rp "Select mode [1]: " choice
+  case "${choice:-1}" in
+    1) MODE="quickstart" ;;
+    2) MODE="production" ;;
+    *)
+      error "Invalid choice. Enter 1 or 2."
+      exit 1
+      ;;
+  esac
+  echo ""
+}
 
 check_command() {
   if ! command -v "$1" &>/dev/null; then
@@ -216,19 +243,27 @@ bootstrap_vault_sync() {
 }
 
 ensure_mode_permissions() {
+  if [ -z "$MODE" ]; then
+    prompt_setup_mode
+  fi
+
   if [ "$MODE" = "quickstart" ] && [ "$(id -u)" -eq 0 ]; then
     error "Quickstart should be run as your normal user so Obsidian login and background processes live in your account."
     echo "    Re-run without sudo:"
-    echo "    ./setup.sh --quickstart"
+    echo "    npm run setup"
     exit 1
   fi
 
   if [ "$MODE" = "production" ] && [ "$(id -u)" -ne 0 ]; then
-    error "Production setup needs root so it can register system services."
-    echo "    Re-run with sudo:"
-    echo "    sudo ./setup.sh --production"
-    exit 1
+    warn "Production setup needs root so it can register system services."
+    echo "    Re-running with sudo..."
+    exec sudo "$0" --production
   fi
+}
+
+write_active_mode() {
+  mkdir -p "$RUNTIME_DIR"
+  printf '%s\n' "$MODE" > "$MODE_FILE"
 }
 
 require_prerequisites() {
@@ -849,7 +884,7 @@ print_quickstart_summary() {
     echo "    Vault source: obsidian-headless."
   fi
   echo "    Logs: $LOG_DIR"
-  echo "    Stop processes: make quickstart-stop"
+  echo "    Stop processes: npm run stop"
 }
 
 print_production_summary() {
@@ -899,6 +934,7 @@ fi
 if [ "$MODE" = "quickstart" ]; then
   CLOUDFLARED_BIN=$(command -v cloudflared)
   start_quickstart_processes
+  write_active_mode
   echo ""
   print_quickstart_summary
 else
@@ -908,6 +944,7 @@ else
   else
     install_services_linux
   fi
+  write_active_mode
   echo ""
   print_production_summary
 fi
