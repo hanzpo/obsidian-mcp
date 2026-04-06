@@ -397,7 +397,9 @@ ensure_obsidian_login() {
 }
 
 load_local_tunnel_settings() {
-  [ -f "$LOCAL_TUNNEL_ENV_FILE" ] || return
+  if [ ! -f "$LOCAL_TUNNEL_ENV_FILE" ]; then
+    return 0
+  fi
 
   LOCAL_TUNNEL_MODE=$(grep '^LOCAL_TUNNEL_MODE=' "$LOCAL_TUNNEL_ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
   PUBLIC_HOSTNAME=$(grep '^PUBLIC_HOSTNAME=' "$LOCAL_TUNNEL_ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
