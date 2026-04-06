@@ -1,7 +1,18 @@
 .PHONY: install start stop restart status logs logs-sync logs-mcp logs-caddy keygen update
 
 install:
-	cp systemd/* /etc/systemd/system/
+	@PROJECT_DIR=$$(pwd) && \
+	OB_BIN=$$(command -v ob) && \
+	NODE_BIN_DIR=$$(dirname $$(command -v node)) && \
+	DOCKER_BIN=$$(command -v docker) && \
+	for tmpl in systemd/*.template; do \
+		unit=$$(basename $$tmpl .template); \
+		sed -e "s|__PROJECT_DIR__|$$PROJECT_DIR|g" \
+		    -e "s|__NODE_BIN_DIR__|$$NODE_BIN_DIR|g" \
+		    -e "s|__OB_BIN__|$$OB_BIN|g" \
+		    -e "s|__DOCKER_BIN__|$$DOCKER_BIN|g" \
+		    $$tmpl > /etc/systemd/system/$$unit; \
+	done
 	systemctl daemon-reload
 	systemctl enable obsidian-mcp.target
 
@@ -36,4 +47,5 @@ keygen:
 
 update:
 	git pull
+	$(MAKE) install
 	systemctl restart obsidian-mcp.target

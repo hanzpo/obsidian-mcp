@@ -6,7 +6,7 @@ Remote MCP server that gives AI agents read/write access to your Obsidian vault.
 
 ```
 AI Agent (Claude, Cursor, etc.)
-  ── Streamable HTTP (HTTPS) ──>
+  -- Streamable HTTP (HTTPS) -->
     Caddy (auto-TLS) -> MCP Server (Node.js)
                             |
                         vault files on disk
@@ -16,82 +16,71 @@ AI Agent (Claude, Cursor, etc.)
                         Obsidian Sync <-> your devices
 ```
 
-## Setup
+## Prerequisites
 
-### Prerequisites
-
-- A server (e.g. Hetzner VPS) with Docker installed
+- A server (e.g. Hetzner VPS)
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
-- Node.js 22+ (for obsidian-headless)
-- A domain pointed at your server (A record, DNS only / grey cloud if Cloudflare)
 
-### 1. Clone
+That's it. No domain needed -- the installer auto-configures one via [sslip.io](https://sslip.io). Docker, Node.js, and everything else is handled automatically.
+
+## Install
 
 ```bash
-git clone https://github.com/hanzpo/obsidian-mcp.git /opt/obsidian-mcp
-cd /opt/obsidian-mcp
+curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | sudo bash
 ```
 
-### 2. Set up Obsidian Sync
+The script installs dependencies, walks you through Obsidian login and vault selection, and starts all services. At the end it prints the MCP client config to paste into Claude Desktop, Claude Code, Cursor, etc.
 
-Install `obsidian-headless` and log in:
+## Manual Setup
+
+If you prefer to set things up yourself:
+
+1. Install obsidian-headless and log in:
 
 ```bash
 npm install -g obsidian-headless
 ob login
 ```
 
-Create the vault directory and set up sync:
+2. Create the vault directory and sync:
 
 ```bash
 mkdir -p vault
-cd vault
-ob sync-list-remote          # find your vault name
-ob sync-setup --vault "My Vault"
-ob sync                      # initial sync to pull files
-cd ..
+ob sync-list-remote                          # find your vault name
+ob sync-setup --vault "My Vault" --path ./vault
+ob sync --path ./vault                       # initial pull
 ```
 
-### 3. Generate API key and configure
+3. Generate API key and configure:
 
 ```bash
-make keygen
+make keygen       # creates .env with a random API key
 ```
 
-This creates `.env` with a random API key and prints the client config. Edit `.env` to set your vault path and domain:
+Edit `.env` to set your domain:
 
 ```
-DOMAIN=obsidian.hanzpo.com
-VAULT_PATH=/opt/obsidian-mcp/vault
+DOMAIN=obsidian.example.com
 API_KEY=<generated>
 ```
 
-### 4. Install and start
+4. Install and start:
 
 ```bash
-make install
+make install      # generates systemd units from templates, enables services
 make start
 ```
 
-This starts two services via one command:
+## Client Config
 
-| Unit | What it does |
-|------|-------------|
-| `obsidian-sync.service` | Runs `ob sync --continuous` on the host |
-| `obsidian-mcp.service` | Runs `docker compose up` (MCP server + Caddy) |
-
-Both are grouped under `obsidian-mcp.target`. Starting/stopping the target controls everything.
-
-### 6. Configure your AI client
-
-Add to your MCP client config (Claude Desktop, Claude Code, Cursor, etc.):
+Add to your MCP client (Claude Desktop, Claude Code, Cursor, etc.):
 
 ```json
 {
   "mcpServers": {
     "obsidian": {
       "type": "streamableHttp",
-      "url": "https://obsidian.hanzpo.com/mcp",
+      "url": "https://your-domain.com/mcp",
       "headers": {
         "Authorization": "Bearer <your-api-key>"
       }
@@ -99,8 +88,6 @@ Add to your MCP client config (Claude Desktop, Claude Code, Cursor, etc.):
   }
 }
 ```
-
-The `keygen.sh` script prints this with your actual key.
 
 ## Tools
 
@@ -133,7 +120,7 @@ The `keygen.sh` script prints this with your actual key.
 | `make logs-mcp` | Tail MCP server logs |
 | `make logs-caddy` | Tail Caddy logs |
 | `make keygen` | Generate/rotate API key |
-| `make update` | Pull latest and restart |
+| `make update` | Pull latest, reinstall units, and restart |
 
 ## Development
 

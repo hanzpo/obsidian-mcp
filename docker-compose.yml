@@ -4,7 +4,7 @@ services:
     expose:
       - "3456"
     volumes:
-      - ${VAULT_PATH:-./vault}:/vault
+      - ./vault:/vault
     environment:
       - VAULT_PATH=/vault
       - API_KEY=${API_KEY}

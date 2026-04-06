@@ -23,8 +23,8 @@ else
   echo "Created .env from .env.example with API_KEY set"
 fi
 
-DOMAIN=$(grep '^DOMAIN=' .env 2>/dev/null | cut -d= -f2 || echo "obsidian.hanzpo.com")
-DOMAIN=${DOMAIN:-obsidian.hanzpo.com}
+DOMAIN=$(grep '^DOMAIN=' .env 2>/dev/null | cut -d= -f2 || echo "obsidian.example.com")
+DOMAIN=${DOMAIN:-obsidian.example.com}
 
 echo ""
 echo "Client config:"

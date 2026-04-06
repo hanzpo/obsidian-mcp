@@ -1,5 +1,5 @@
 [Unit]
-Description=Obsidian MCP Stack (sync + server + caddy)
+Description=Obsidian MCP Stack
 Wants=obsidian-sync.service obsidian-mcp.service
 
 [Install]
