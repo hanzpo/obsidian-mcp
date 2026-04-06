@@ -14,6 +14,7 @@ Quickstart does this:
 
 - installs Node.js, `obsidian-headless`, and `cloudflared` if needed
 - downloads the repo even if `git` is not installed
+- installs into a dedicated app directory instead of assuming the current working directory is safe
 - walks you through `ob login`
 - lets you pick one or more Obsidian Sync vaults
 - performs the initial sync
@@ -57,6 +58,7 @@ Tradeoffs:
 - works well on a laptop, desktop, or home server
 - URL is temporary and usually changes if the tunnel restarts
 - depends on this machine staying on and the background processes staying alive
+- setup refuses to sync into a non-empty unmanaged vault directory
 
 Manage quickstart processes:
 
@@ -89,6 +91,7 @@ Tradeoffs:
 - requires sudo/root
 - best if you want a stable endpoint you can leave running for a long time
 - better fit for a VPS, Mac mini, or other always-on machine
+- setup refuses to install into or sync over unrelated non-empty directories
 
 Architecture:
 

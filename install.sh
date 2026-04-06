@@ -3,13 +3,24 @@ set -euo pipefail
 
 REPO="https://github.com/hanzpo/obsidian-mcp.git"
 ARCHIVE_URL="https://github.com/hanzpo/obsidian-mcp/archive/refs/heads/main.tar.gz"
-INSTALL_DIR="$(pwd)/obsidian-mcp"
+INSTALL_DIR="${OBSIDIAN_MCP_INSTALL_DIR:-}"
 OS="$(uname -s)"
 
 info()    { echo -e "\033[1;34m==>\033[0m $*"; }
 success() { echo -e "\033[1;32m==>\033[0m $*"; }
 warn()    { echo -e "\033[1;33m==>\033[0m $*"; }
 error()   { echo -e "\033[1;31m==>\033[0m $*" >&2; }
+
+read_prompt() {
+  local prompt="$1"
+  local reply
+  if [ -t 0 ]; then
+    read -rp "$prompt" reply
+  else
+    read -rp "$prompt" reply </dev/tty
+  fi
+  printf '%s' "$reply"
+}
 
 prompt_install_mode() {
   echo ""
@@ -31,11 +42,7 @@ prompt_install_mode() {
   echo ""
 
   local choice
-  if [ -t 0 ]; then
-    read -rp "Mode [1]: " choice
-  else
-    read -rp "Mode [1]: " choice </dev/tty
-  fi
+  choice="$(read_prompt "Mode [1]: ")"
   case "${choice:-1}" in
     1) MODE="quickstart" ;;
     2) MODE="production" ;;
@@ -59,6 +66,77 @@ ensure_mode_permissions() {
     echo "    Re-run with sudo:"
     echo "    curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | sudo bash"
     exit 1
+  fi
+}
+
+expand_path() {
+  local raw_path="$1"
+  case "$raw_path" in
+    "~")
+      printf '%s' "$HOME"
+      ;;
+    \~/*)
+      printf '%s/%s' "$HOME" "${raw_path#~/}"
+      ;;
+    *)
+      printf '%s' "$raw_path"
+      ;;
+  esac
+}
+
+prompt_install_dir() {
+  if [ -n "$INSTALL_DIR" ]; then
+    INSTALL_DIR="$(expand_path "$INSTALL_DIR")"
+    return
+  fi
+
+  local default_dir
+  if [ "$MODE" = "quickstart" ]; then
+    default_dir="$HOME/.local/share/obsidian-mcp"
+  else
+    default_dir="/opt/obsidian-mcp"
+  fi
+
+  echo ""
+  echo "Install location:"
+  echo "  Default: $default_dir"
+  echo "  Safety: setup refuses to install into an unrelated non-empty directory."
+  echo ""
+
+  local chosen_dir
+  chosen_dir="$(read_prompt "Install dir [$default_dir]: ")"
+  INSTALL_DIR="$(expand_path "${chosen_dir:-$default_dir}")"
+}
+
+dir_has_contents() {
+  local dir="$1"
+  [ -d "$dir" ] || return 1
+  find "$dir" -mindepth 1 -maxdepth 1 -print -quit | grep -q .
+}
+
+is_managed_install_dir() {
+  local dir="$1"
+  [ -f "$dir/package.json" ] &&
+    [ -f "$dir/setup.sh" ] &&
+    grep -q '"name":[[:space:]]*"obsidian-mcp"' "$dir/package.json"
+}
+
+ensure_safe_install_dir() {
+  if [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
+    error "Install path exists but is not a directory: $INSTALL_DIR"
+    exit 1
+  fi
+
+  if [ -d "$INSTALL_DIR" ]; then
+    if is_managed_install_dir "$INSTALL_DIR"; then
+      return
+    fi
+
+    if dir_has_contents "$INSTALL_DIR"; then
+      error "Refusing to install into a non-empty unrelated directory: $INSTALL_DIR"
+      echo "    Choose an empty directory or set OBSIDIAN_MCP_INSTALL_DIR to a dedicated path."
+      exit 1
+    fi
   fi
 }
 
@@ -250,10 +328,14 @@ case "$MODE" in
 esac
 
 ensure_mode_permissions
+prompt_install_dir
+ensure_safe_install_dir
 
 echo ""
 echo "  obsidian-mcp installer"
 echo "  ======================"
+echo ""
+echo "  Install dir: $INSTALL_DIR"
 echo ""
 if [ "$MODE" = "quickstart" ]; then
   echo "  This will install obsidian-mcp, Node.js, cloudflared, and"

@@ -15,6 +15,7 @@ LOG_DIR="$RUNTIME_DIR/logs"
 PORT="${PORT:-3456}"
 HOST="${HOST:-127.0.0.1}"
 MODE="quickstart"
+VAULT_MARKER=".obsidian-mcp-vault"
 
 case "${1:-}" in
   ""|--quickstart)
@@ -44,6 +45,35 @@ check_command() {
 
 sanitize_name() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+}
+
+dir_has_contents() {
+  local dir="$1"
+  [ -d "$dir" ] || return 1
+  find "$dir" -mindepth 1 -maxdepth 1 -print -quit | grep -q .
+}
+
+is_managed_vault_dir() {
+  local dir="$1"
+  [ -f "$dir/$VAULT_MARKER" ]
+}
+
+prepare_vault_dir() {
+  local vault_label="$1"
+  local vault_dir="$2"
+
+  if is_managed_vault_dir "$vault_dir"; then
+    return
+  fi
+
+  if [ -d "$vault_dir" ] && dir_has_contents "$vault_dir"; then
+    error "Refusing to sync vault \"$vault_label\" into a non-empty directory: $vault_dir"
+    echo "    Choose a different install directory or move/empty this folder first."
+    echo "    This is a safety check to avoid overwriting unrelated files."
+    exit 1
+  fi
+
+  mkdir -p "$vault_dir"
 }
 
 ensure_mode_permissions() {
@@ -143,8 +173,13 @@ setup_vaults() {
   for dir in "$VAULT_BASE"/*/; do
     [ -d "$dir" ] || continue
     name=$(basename "$dir")
-    VAULT_NAMES+=("$name")
-    success "Vault \"$name\" already synced. Skipping."
+    if is_managed_vault_dir "$dir"; then
+      VAULT_NAMES+=("$name")
+      success "Vault \"$name\" already synced. Skipping."
+    else
+      warn "Found unmanaged directory under vaults/: $dir"
+      warn "It will not be used automatically."
+    fi
   done
 
   if [ ${#VAULT_NAMES[@]} -eq 0 ]; then
@@ -162,13 +197,14 @@ setup_vaults() {
 
     SAFE_NAME=$(sanitize_name "$VAULT_NAME")
     VAULT_DIR="$VAULT_BASE/$SAFE_NAME"
-    mkdir -p "$VAULT_DIR"
+    prepare_vault_dir "$VAULT_NAME" "$VAULT_DIR"
 
     info "Connecting to vault \"$VAULT_NAME\"..."
     ob sync-setup --vault "$VAULT_NAME" --path "$VAULT_DIR"
 
     info "Downloading vault contents (this may take a moment for large vaults)..."
     ob sync --path "$VAULT_DIR"
+    touch "$VAULT_DIR/$VAULT_MARKER"
     success "Vault \"$VAULT_NAME\" synced to $VAULT_DIR."
 
     VAULT_NAMES+=("$SAFE_NAME")
@@ -204,13 +240,14 @@ setup_vaults() {
     fi
 
     VAULT_DIR="$VAULT_BASE/$SAFE_NAME"
-    mkdir -p "$VAULT_DIR"
+    prepare_vault_dir "$VAULT_NAME" "$VAULT_DIR"
 
     info "Connecting to vault \"$VAULT_NAME\"..."
     ob sync-setup --vault "$VAULT_NAME" --path "$VAULT_DIR"
 
     info "Downloading vault contents (this may take a moment for large vaults)..."
     ob sync --path "$VAULT_DIR"
+    touch "$VAULT_DIR/$VAULT_MARKER"
     success "Vault \"$VAULT_NAME\" synced to $VAULT_DIR."
 
     VAULT_NAMES+=("$SAFE_NAME")
