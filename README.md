@@ -1,6 +1,6 @@
 # obsidian-mcp
 
-Remote MCP server that gives AI agents read/write access to your Obsidian vaults. On personal machines it can mount the real local vault folders used by the Obsidian app; on servers it falls back to syncing with [obsidian-headless](https://github.com/obsidianmd/obsidian-headless).
+Remote MCP server that gives AI agents read/write access to your Obsidian vaults. On personal machines it mounts the real local vault folders used by the Obsidian app; on server-style machines without local desktop vaults it falls back to syncing with [obsidian-headless](https://github.com/obsidianmd/obsidian-headless).
 
 ## Fastest Path
 
@@ -12,11 +12,12 @@ curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh
 
 Quickstart does this:
 
-- installs Node.js, `obsidian-headless`, and `cloudflared` if needed
+- installs Node.js and `cloudflared`, plus `obsidian-headless` only when this machine does not already have local Obsidian vaults
 - downloads the repo even if `git` is not installed
 - installs into a dedicated app directory instead of assuming the current working directory is safe
-- on laptops and desktops, detects local Obsidian app vaults and can use them directly
-- on servers, falls back to `obsidian-headless`
+- on laptops and desktops, detects local Obsidian app vaults and uses them directly
+- blocks `obsidian-headless` on machines where local Obsidian desktop vaults are detected
+- on servers or headless-safe machines, falls back to `obsidian-headless`
 - if headless mode is used, walks you through `ob login`
 - if headless mode is used, performs the initial sync in `pull-only` mode, then switches to normal bidirectional sync
 - starts the MCP server in the background
@@ -59,7 +60,8 @@ Tradeoffs:
 
 - easiest path from zero to working remote MCP
 - works well on a laptop, desktop, or home server
-- on personal machines, it can use the Obsidian app's real vault folders directly
+- on personal machines, it uses the Obsidian app's real vault folders directly
+- if local Obsidian vaults are detected, it does not let `obsidian-headless` run on that same device
 - URL is temporary and usually changes if the tunnel restarts
 - depends on this machine staying on and the background processes staying alive
 - setup refuses to sync into a non-empty unmanaged vault directory
@@ -76,7 +78,7 @@ make quickstart-stop    # stop quickstart background processes
 
 ### 2. Production
 
-Best for an always-on self-hosted deployment with a stable domain.
+Best for an always-on self-hosted deployment with a stable domain on a separate server-style machine.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | sudo bash
@@ -94,6 +96,7 @@ Tradeoffs:
 
 - more moving parts up front
 - requires sudo/root
+- intentionally refuses to run on machines where local Obsidian desktop vaults are detected
 - best if you want a stable endpoint you can leave running for a long time
 - better fit for a VPS, Mac mini, or other always-on machine
 - setup refuses to install into or sync over unrelated non-empty directories
@@ -114,7 +117,7 @@ AI Agent
 ## Prerequisites
 
 - a machine that can stay online while you use the MCP server
-- for server or headless mode: an [Obsidian Sync](https://obsidian.md/sync) subscription
+- for server or headless mode: an [Obsidian Sync](https://obsidian.md/sync) subscription and a machine without local Obsidian desktop vaults
 - for desktop-vault quickstart on your own machine: a local Obsidian app install with at least one vault already configured
 
 Production mode also benefits from a server or machine with a reachable public IP. Quickstart works well even when you do not want to manage domains and TLS yourself.

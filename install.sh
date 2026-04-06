@@ -5,6 +5,7 @@ REPO="https://github.com/hanzpo/obsidian-mcp.git"
 ARCHIVE_URL="https://github.com/hanzpo/obsidian-mcp/archive/refs/heads/main.tar.gz"
 INSTALL_DIR="${OBSIDIAN_MCP_INSTALL_DIR:-}"
 OS="$(uname -s)"
+DESKTOP_VAULT_COUNT=0
 
 info()    { echo -e "\033[1;34m==>\033[0m $*"; }
 success() { echo -e "\033[1;32m==>\033[0m $*"; }
@@ -83,6 +84,56 @@ expand_path() {
       printf '%s' "$raw_path"
       ;;
   esac
+}
+
+find_desktop_config() {
+  case "$OS" in
+    Darwin)
+      printf '%s' "$HOME/Library/Application Support/obsidian/obsidian.json"
+      ;;
+    Linux)
+      printf '%s' "${XDG_CONFIG_HOME:-$HOME/.config}/obsidian/obsidian.json"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+detect_desktop_vaults() {
+  local config_path
+  config_path="$(find_desktop_config || true)"
+  if [ -z "$config_path" ] || [ ! -f "$config_path" ]; then
+    DESKTOP_VAULT_COUNT=0
+    return 1
+  fi
+
+  DESKTOP_VAULT_COUNT="$(
+    node - "$config_path" <<'NODE'
+const fs = require("node:fs");
+
+const configPath = process.argv[2];
+const raw = fs.readFileSync(configPath, "utf8");
+const parsed = JSON.parse(raw);
+const vaults = parsed.vaults || {};
+let count = 0;
+
+for (const entry of Object.values(vaults)) {
+  if (!entry || typeof entry.path !== "string") continue;
+  try {
+    if (fs.existsSync(entry.path) && fs.statSync(entry.path).isDirectory()) {
+      count += 1;
+    }
+  } catch {
+    // Ignore stale entries.
+  }
+}
+
+process.stdout.write(String(count));
+NODE
+  )"
+
+  [ "${DESKTOP_VAULT_COUNT:-0}" -gt 0 ]
 }
 
 prompt_install_dir() {
@@ -340,7 +391,7 @@ echo "  Install dir: $INSTALL_DIR"
 echo ""
 if [ "$MODE" = "quickstart" ]; then
   echo "  This will install obsidian-mcp, Node.js, cloudflared, and"
-  echo "  obsidian-headless, then give you a public remote MCP URL fast."
+  echo "  obsidian-headless only if this machine does not already have local Obsidian vaults."
   echo "  Tradeoff: easiest setup, but the URL is temporary."
 else
   echo "  This will install obsidian-mcp and its production dependencies"
@@ -350,12 +401,28 @@ fi
 echo ""
 
 install_node
+detect_desktop_vaults || true
+
 if [ "$MODE" = "quickstart" ]; then
+  if [ "$DESKTOP_VAULT_COUNT" -gt 0 ]; then
+    info "Detected ${DESKTOP_VAULT_COUNT} local Obsidian vault(s). Quickstart will use the desktop vault folders directly."
+    echo "    obsidian-headless will not be installed on this machine."
+  else
+    info "No local Obsidian vaults detected. Quickstart will use obsidian-headless."
+  fi
   install_cloudflared
 else
+  if [ "$DESKTOP_VAULT_COUNT" -gt 0 ]; then
+    error "Local Obsidian vaults were detected on this machine."
+    echo "    Production mode uses obsidian-headless and is blocked here to avoid sync conflicts with the Obsidian app."
+    echo "    Use quickstart on this machine, or run production on a separate server or always-on machine."
+    exit 1
+  fi
   install_caddy
 fi
-install_ob
+if [ "$MODE" = "production" ] || [ "$DESKTOP_VAULT_COUNT" -eq 0 ]; then
+  install_ob
+fi
 expose_installed_tools
 
 echo ""

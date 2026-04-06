@@ -140,39 +140,30 @@ NODE
   [ ${#DESKTOP_VAULT_LINES[@]} -gt 0 ]
 }
 
-select_quickstart_vault_source() {
-  if [ "$MODE" != "quickstart" ]; then
-    return
-  fi
-
-  if ! load_desktop_vaults; then
-    VAULT_SOURCE="headless"
-    return
-  fi
-
-  echo "Detected local Obsidian vaults from $DESKTOP_CONFIG_PATH"
-  echo ""
-  echo "Choose vault source:"
-  echo "  1) Desktop vaults (recommended on this device)"
-  echo "     Uses the local vault folders that the Obsidian app already manages."
-  echo "     Avoids running Headless Sync alongside desktop Sync on the same machine."
-  echo ""
-  echo "  2) Headless Sync vaults"
-  echo "     Use this on servers or on machines without local Obsidian-managed vaults."
-  echo ""
-
-  local source_choice
-  read -rp "Vault source [1]: " source_choice
-  case "${source_choice:-1}" in
-    1) VAULT_SOURCE="desktop" ;;
-    2) VAULT_SOURCE="headless" ;;
-    *)
-      error "Invalid choice. Enter 1 or 2."
+determine_vault_source() {
+  if load_desktop_vaults; then
+    if [ "$MODE" = "production" ]; then
+      error "Local Obsidian desktop vaults were detected on this machine."
+      echo "    Production mode uses obsidian-headless, which should not run alongside desktop Sync on the same device."
+      echo "    Use quickstart on this machine, or run production on a separate server or always-on machine."
       exit 1
-      ;;
-  esac
+    fi
 
-  echo ""
+    VAULT_SOURCE="desktop"
+    info "Detected local Obsidian vaults."
+    echo "    Quickstart will use the desktop vault folders directly on this machine."
+    echo "    obsidian-headless is blocked here to avoid sync conflicts with the Obsidian app."
+    echo ""
+    return
+  fi
+
+  VAULT_SOURCE="headless"
+  if [ "$MODE" = "quickstart" ]; then
+    info "No local Obsidian vaults detected."
+    echo "    Quickstart will use obsidian-headless and Obsidian Sync on this machine."
+    echo "    This is the server-style path."
+    echo ""
+  fi
 }
 
 dir_has_contents() {
@@ -877,15 +868,18 @@ echo ""
 if [ "$MODE" = "quickstart" ]; then
   echo "  Quickstart mode: public remote MCP endpoint now via cloudflared."
   echo "  No Caddy. No system services. No root."
+  echo "  If local Obsidian vaults are detected, they are mounted directly."
+  echo "  Otherwise this machine uses obsidian-headless."
   echo "  Tradeoff: fast and simple, but the URL is temporary and depends on this machine staying up."
 else
   echo "  Production mode: system services + Caddy + stable HTTPS domain."
+  echo "  This mode is for a separate server-style machine without local Obsidian desktop vaults."
   echo "  Tradeoff: more setup, but better durability and a stable endpoint."
 fi
 echo ""
 
 require_prerequisites
-select_quickstart_vault_source
+determine_vault_source
 if [ "$MODE" = "production" ]; then
   configure_domain
 fi
