@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
-import type { Services } from "../server.js";
+import { invalidateDerivedCaches, type Services } from "../server.js";
 
 export function registerDeleteNote(server: McpServer, services: Services) {
   server.registerTool(
@@ -23,6 +23,7 @@ export function registerDeleteNote(server: McpServer, services: Services) {
         };
       }
       await services.fs.deleteFile(path);
+      invalidateDerivedCaches(services);
       return {
         content: [{ type: "text" as const, text: `Deleted ${path}` }],
       };

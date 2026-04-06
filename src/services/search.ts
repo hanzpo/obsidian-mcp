@@ -25,6 +25,11 @@ export class SearchService {
     this.fs = new FileSystemService(vaultPath);
   }
 
+  invalidateCache(): void {
+    this.cache = null;
+    this.cacheTime = 0;
+  }
+
   private async loadDocs(): Promise<CachedDoc[]> {
     const now = Date.now();
     if (this.cache && now - this.cacheTime < CACHE_TTL_MS) {

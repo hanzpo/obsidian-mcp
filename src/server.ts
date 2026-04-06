@@ -23,6 +23,11 @@ export function createServices(config: Config): Services {
   };
 }
 
+export function invalidateDerivedCaches(services: Services): void {
+  services.search.invalidateCache();
+  services.wikilinks.invalidateCache();
+}
+
 export function createMcpServer(services: Services): McpServer {
   const server = new McpServer({
     name: "obsidian-mcp",

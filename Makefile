@@ -1,4 +1,4 @@
-.PHONY: install build start stop restart status logs logs-sync logs-mcp logs-caddy keygen update
+.PHONY: quickstart quickstart-stop quickstart-status quickstart-logs install build start stop restart status logs logs-sync logs-mcp logs-caddy keygen update
 
 OS := $(shell uname -s)
 
@@ -9,6 +9,34 @@ SYNC_SERVICES := $(foreach name,$(VAULT_NAMES),obsidian-sync-$(name).service)
 build:
 	npm ci --silent
 	npm run build --silent
+
+quickstart:
+	PATH="$(HOME)/.local/bin:$$PATH" ./setup.sh --quickstart
+
+quickstart-stop:
+	@for pidfile in .obsidian-mcp/pids/*.pid; do \
+		[ -f "$$pidfile" ] || continue; \
+		pid=$$(cat "$$pidfile" 2>/dev/null || true); \
+		if [ -n "$$pid" ] && kill -0 "$$pid" 2>/dev/null; then \
+			kill "$$pid" 2>/dev/null || true; \
+		fi; \
+		rm -f "$$pidfile"; \
+	done
+
+quickstart-status:
+	@for pidfile in .obsidian-mcp/pids/*.pid; do \
+		[ -f "$$pidfile" ] || continue; \
+		name=$$(basename "$$pidfile" .pid); \
+		pid=$$(cat "$$pidfile" 2>/dev/null || true); \
+		if [ -n "$$pid" ] && kill -0 "$$pid" 2>/dev/null; then \
+			echo "$$name: running (pid $$pid)"; \
+		else \
+			echo "$$name: stopped"; \
+		fi; \
+	done
+
+quickstart-logs:
+	tail -f .obsidian-mcp/logs/*.log
 
 install: build
 ifeq ($(OS),Darwin)
@@ -45,17 +73,17 @@ endif
 
 ifeq ($(OS),Darwin)
 start:
-	launchctl bootstrap system ~/Library/LaunchDaemons/com.obsidian-mcp.server.plist 2>/dev/null || true
-	launchctl bootstrap system ~/Library/LaunchDaemons/com.obsidian-mcp.caddy.plist 2>/dev/null || true
+	launchctl bootstrap system /Library/LaunchDaemons/com.obsidian-mcp.server.plist 2>/dev/null || true
+	launchctl bootstrap system /Library/LaunchDaemons/com.obsidian-mcp.caddy.plist 2>/dev/null || true
 	@for name in $(VAULT_NAMES); do \
-		launchctl bootstrap system ~/Library/LaunchDaemons/com.obsidian-mcp.sync-$$name.plist 2>/dev/null || true; \
+		launchctl bootstrap system /Library/LaunchDaemons/com.obsidian-mcp.sync-$$name.plist 2>/dev/null || true; \
 	done
 
 stop:
-	launchctl bootout system ~/Library/LaunchDaemons/com.obsidian-mcp.server.plist 2>/dev/null || true
-	launchctl bootout system ~/Library/LaunchDaemons/com.obsidian-mcp.caddy.plist 2>/dev/null || true
+	launchctl bootout system /Library/LaunchDaemons/com.obsidian-mcp.server.plist 2>/dev/null || true
+	launchctl bootout system /Library/LaunchDaemons/com.obsidian-mcp.caddy.plist 2>/dev/null || true
 	@for name in $(VAULT_NAMES); do \
-		launchctl bootout system ~/Library/LaunchDaemons/com.obsidian-mcp.sync-$$name.plist 2>/dev/null || true; \
+		launchctl bootout system /Library/LaunchDaemons/com.obsidian-mcp.sync-$$name.plist 2>/dev/null || true; \
 	done
 
 restart: stop start

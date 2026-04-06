@@ -8,8 +8,27 @@ fi
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OS="$(uname -s)"
+export PATH="$HOME/.local/bin:$PATH"
+RUNTIME_DIR="$PROJECT_DIR/.obsidian-mcp"
+PID_DIR="$RUNTIME_DIR/pids"
+LOG_DIR="$RUNTIME_DIR/logs"
+PORT="${PORT:-3456}"
+HOST="${HOST:-127.0.0.1}"
+MODE="quickstart"
 
-# --- Formatting helpers ---
+case "${1:-}" in
+  ""|--quickstart)
+    MODE="quickstart"
+    ;;
+  --production)
+    MODE="production"
+    ;;
+  *)
+    echo "Unsupported mode: ${1:-}" >&2
+    exit 1
+    ;;
+esac
+
 info()    { echo -e "\033[1;34m==>\033[0m $*"; }
 success() { echo -e "\033[1;32m==>\033[0m $*"; }
 warn()    { echo -e "\033[1;33m==>\033[0m $*"; }
@@ -23,18 +42,318 @@ check_command() {
   fi
 }
 
-# Sanitize vault name to a safe identifier for service names and directories
 sanitize_name() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
 }
 
-# --- Platform-specific service installation ---
+ensure_mode_permissions() {
+  if [ "$MODE" = "quickstart" ] && [ "$(id -u)" -eq 0 ]; then
+    error "Quickstart should be run as your normal user so Obsidian login and background processes live in your account."
+    echo "    Re-run without sudo:"
+    echo "    ./setup.sh --quickstart"
+    exit 1
+  fi
+
+  if [ "$MODE" = "production" ] && [ "$(id -u)" -ne 0 ]; then
+    error "Production setup needs root so it can register system services."
+    echo "    Re-run with sudo:"
+    echo "    sudo ./setup.sh --production"
+    exit 1
+  fi
+}
+
+require_prerequisites() {
+  info "Checking that required tools are installed..."
+  check_command node "https://nodejs.org/ (v22+)"
+  check_command ob "npm install -g obsidian-headless"
+  check_command openssl
+  check_command curl
+
+  if [ "$MODE" = "quickstart" ]; then
+    check_command cloudflared "Install with ./install.sh quickstart or from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+  else
+    check_command caddy "https://caddyserver.com/docs/install"
+  fi
+
+  success "All prerequisites found."
+  echo ""
+}
+
+configure_domain() {
+  EXISTING_DOMAIN=""
+  if [ -f "$PROJECT_DIR/.env" ]; then
+    EXISTING_DOMAIN=$(grep '^DOMAIN=' "$PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2 || true)
+  fi
+
+  if [ -n "$EXISTING_DOMAIN" ]; then
+    DEFAULT_DOMAIN="$EXISTING_DOMAIN"
+  else
+    PUBLIC_IP=$(curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null || curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)
+    if [ -n "$PUBLIC_IP" ]; then
+      DEFAULT_DOMAIN="${PUBLIC_IP//./-}.sslip.io"
+    else
+      DEFAULT_DOMAIN="obsidian.example.com"
+    fi
+  fi
+
+  info "Your production MCP server needs a domain for HTTPS."
+  echo "    If you have a domain, enter it. Otherwise, press Enter to use the"
+  echo "    auto-generated sslip.io domain (free, no DNS config needed)."
+  echo ""
+  read -rp "Domain [$DEFAULT_DOMAIN]: " DOMAIN
+  DOMAIN="${DOMAIN:-$DEFAULT_DOMAIN}"
+
+  if [ "$DOMAIN" = "obsidian.example.com" ]; then
+    error "Could not auto-detect your server's public IP."
+    echo "    Please enter your domain or IP-based sslip.io domain manually."
+    echo "    Example: 49-13-100-42.sslip.io"
+    exit 1
+  fi
+
+  echo ""
+}
+
+ensure_obsidian_login() {
+  info "Checking if you're logged into Obsidian..."
+  if ob sync-list-remote &>/dev/null; then
+    success "Already logged into Obsidian."
+  else
+    warn "Not logged in. Opening Obsidian login..."
+    echo "    You'll need your Obsidian account email and password."
+    echo ""
+    ob login
+  fi
+  echo ""
+}
+
+setup_vaults() {
+  VAULT_BASE="$PROJECT_DIR/vaults"
+  mkdir -p "$VAULT_BASE"
+  VAULT_NAMES=()
+
+  for dir in "$VAULT_BASE"/*/; do
+    [ -d "$dir" ] || continue
+    name=$(basename "$dir")
+    VAULT_NAMES+=("$name")
+    success "Vault \"$name\" already synced. Skipping."
+  done
+
+  if [ ${#VAULT_NAMES[@]} -eq 0 ]; then
+    info "Your Obsidian Sync vaults:"
+    echo ""
+    ob sync-list-remote
+    echo ""
+
+    echo "    Enter the name of the vault you want AI agents to access."
+    read -rp "Vault name: " VAULT_NAME
+    if [ -z "$VAULT_NAME" ]; then
+      error "Vault name is required."
+      exit 1
+    fi
+
+    SAFE_NAME=$(sanitize_name "$VAULT_NAME")
+    VAULT_DIR="$VAULT_BASE/$SAFE_NAME"
+    mkdir -p "$VAULT_DIR"
+
+    info "Connecting to vault \"$VAULT_NAME\"..."
+    ob sync-setup --vault "$VAULT_NAME" --path "$VAULT_DIR"
+
+    info "Downloading vault contents (this may take a moment for large vaults)..."
+    ob sync --path "$VAULT_DIR"
+    success "Vault \"$VAULT_NAME\" synced to $VAULT_DIR."
+
+    VAULT_NAMES+=("$SAFE_NAME")
+    SHOWN_REMOTE_LIST=true
+  fi
+
+  while true; do
+    echo ""
+    read -rp "Add another vault? [y/N]: " ADD_MORE
+    if [[ ! "${ADD_MORE:-n}" =~ ^[Yy] ]]; then
+      break
+    fi
+
+    if [ "${SHOWN_REMOTE_LIST:-}" != "true" ]; then
+      echo ""
+      info "Your Obsidian Sync vaults:"
+      echo ""
+      ob sync-list-remote
+      echo ""
+      SHOWN_REMOTE_LIST=true
+    fi
+
+    read -rp "Vault name: " VAULT_NAME
+    if [ -z "$VAULT_NAME" ]; then
+      warn "Skipped (empty name)."
+      continue
+    fi
+
+    SAFE_NAME=$(sanitize_name "$VAULT_NAME")
+    if [[ " ${VAULT_NAMES[*]} " == *" $SAFE_NAME "* ]]; then
+      warn "Vault \"$VAULT_NAME\" is already set up. Skipping."
+      continue
+    fi
+
+    VAULT_DIR="$VAULT_BASE/$SAFE_NAME"
+    mkdir -p "$VAULT_DIR"
+
+    info "Connecting to vault \"$VAULT_NAME\"..."
+    ob sync-setup --vault "$VAULT_NAME" --path "$VAULT_DIR"
+
+    info "Downloading vault contents (this may take a moment for large vaults)..."
+    ob sync --path "$VAULT_DIR"
+    success "Vault \"$VAULT_NAME\" synced to $VAULT_DIR."
+
+    VAULT_NAMES+=("$SAFE_NAME")
+  done
+
+  echo ""
+  info "Vaults configured: ${VAULT_NAMES[*]}"
+  echo ""
+}
+
+configure_auth() {
+  info "Configuring authentication..."
+  local existing_key=""
+  if [ -f "$PROJECT_DIR/.env" ]; then
+    existing_key=$(grep '^API_KEY=' "$PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2 || true)
+  fi
+
+  if [ -n "$existing_key" ]; then
+    read -rp "API key already exists. Regenerate? [y/N]: " REGEN
+    if [[ "${REGEN:-n}" =~ ^[Yy] ]]; then
+      API_KEY=$(openssl rand -hex 32)
+      info "Generated new API key."
+    else
+      API_KEY="$existing_key"
+      info "Keeping existing API key."
+    fi
+  else
+    API_KEY=$(openssl rand -hex 32)
+    info "Generated API key for securing your MCP server."
+  fi
+
+  local env_file="$PROJECT_DIR/.env"
+  if [ -f "$env_file" ]; then
+    if grep -q '^API_KEY=' "$env_file"; then
+      sed -i.bak "s|^API_KEY=.*|API_KEY=$API_KEY|" "$env_file" && rm -f "$env_file.bak"
+    else
+      echo "API_KEY=$API_KEY" >> "$env_file"
+    fi
+
+    if [ -n "${DOMAIN:-}" ]; then
+      if grep -q '^DOMAIN=' "$env_file"; then
+        sed -i.bak "s|^DOMAIN=.*|DOMAIN=$DOMAIN|" "$env_file" && rm -f "$env_file.bak"
+      else
+        echo "DOMAIN=$DOMAIN" >> "$env_file"
+      fi
+    fi
+  else
+    {
+      [ -n "${DOMAIN:-}" ] && echo "DOMAIN=$DOMAIN"
+      echo "API_KEY=$API_KEY"
+    } > "$env_file"
+  fi
+
+  success "Configuration saved to .env"
+  echo ""
+}
+
+build_server() {
+  info "Installing Node.js dependencies and building..."
+  cd "$PROJECT_DIR"
+  npm ci --silent
+  npm run build --silent
+  success "MCP server built."
+  echo ""
+}
+
+stop_pid_file() {
+  local pid_file="$1"
+  if [ ! -f "$pid_file" ]; then
+    return
+  fi
+
+  local pid
+  pid=$(cat "$pid_file" 2>/dev/null || true)
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    for _ in $(seq 1 10); do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        break
+      fi
+      sleep 1
+    done
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+
+  rm -f "$pid_file"
+}
+
+stop_quickstart_processes() {
+  mkdir -p "$PID_DIR"
+  for pid_file in "$PID_DIR"/*.pid; do
+    [ -f "$pid_file" ] || continue
+    stop_pid_file "$pid_file"
+  done
+}
+
+wait_for_local_server() {
+  local url="http://$HOST:$PORT/mcp"
+  for _ in $(seq 1 20); do
+    local code
+    code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)
+    if [ "$code" != "000" ]; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  error "Timed out waiting for the local MCP server to start."
+  echo "    Check log: $LOG_DIR/obsidian-mcp.log"
+  exit 1
+}
+
+start_quickstart_processes() {
+  info "Starting quickstart background processes..."
+  mkdir -p "$PID_DIR" "$LOG_DIR"
+  stop_quickstart_processes
+
+  for name in "${VAULT_NAMES[@]}"; do
+    local sync_log="$LOG_DIR/obsidian-sync-$name.log"
+    nohup "$OB_BIN" sync --continuous --path "$VAULT_BASE/$name" >"$sync_log" 2>&1 &
+    echo $! > "$PID_DIR/obsidian-sync-$name.pid"
+  done
+
+  local mcp_log="$LOG_DIR/obsidian-mcp.log"
+  nohup env API_KEY="$API_KEY" VAULT_PATH="$VAULT_BASE" PORT="$PORT" HOST="$HOST" \
+    "$NODE_BIN" "$PROJECT_DIR/dist/index.js" >"$mcp_log" 2>&1 &
+  echo $! > "$PID_DIR/obsidian-mcp.pid"
+  wait_for_local_server
+
+  local tunnel_log="$LOG_DIR/cloudflared.log"
+  nohup "$CLOUDFLARED_BIN" tunnel --url "http://$HOST:$PORT" --no-autoupdate >"$tunnel_log" 2>&1 &
+  echo $! > "$PID_DIR/cloudflared.pid"
+
+  for _ in $(seq 1 30); do
+    QUICKSTART_BASE_URL=$(grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' "$tunnel_log" | head -n 1 || true)
+    if [ -n "$QUICKSTART_BASE_URL" ]; then
+      QUICKSTART_URL="${QUICKSTART_BASE_URL}/mcp"
+      success "Quickstart MCP endpoint is live."
+      return
+    fi
+    sleep 1
+  done
+
+  error "Timed out waiting for cloudflared to publish a public URL."
+  echo "    Check log: $LOG_DIR/cloudflared.log"
+  exit 1
+}
 
 install_services_linux() {
   info "Setting up systemd services to run on boot..."
   mkdir -p /etc/systemd/system
 
-  # Clean up orphaned sync services from previous runs
   for existing in /etc/systemd/system/obsidian-sync-*.service; do
     [ -f "$existing" ] || continue
     unit_name=$(basename "$existing" .service)
@@ -47,14 +366,12 @@ install_services_linux() {
     fi
   done
 
-  # Build list of sync service names
   SYNC_SERVICES=""
   for name in "${VAULT_NAMES[@]}"; do
     SYNC_SERVICES="$SYNC_SERVICES obsidian-sync-${name}.service"
   done
-  SYNC_SERVICES="${SYNC_SERVICES# }"  # trim leading space
+  SYNC_SERVICES="${SYNC_SERVICES# }"
 
-  # Generate one sync service per vault
   for name in "${VAULT_NAMES[@]}"; do
     sed \
       -e "s|__VAULT_NAME__|$name|g" \
@@ -65,10 +382,8 @@ install_services_linux() {
       > "/etc/systemd/system/obsidian-sync-${name}.service"
   done
 
-  # Generate MCP service, Caddy service, and target
   for tmpl in "$PROJECT_DIR/systemd/"*.template; do
     unit=$(basename "$tmpl" .template)
-    # Skip sync template (handled per-vault above)
     [[ "$unit" == "obsidian-sync" ]] && continue
     sed \
       -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
@@ -91,10 +406,9 @@ install_services_linux() {
 install_services_macos() {
   info "Setting up launchd services..."
 
-  PLIST_DIR="$HOME/Library/LaunchDaemons"
+  PLIST_DIR="/Library/LaunchDaemons"
   mkdir -p "$PLIST_DIR"
 
-  # Source .env vars for the environment
   ENV_VARS=$(cat <<ENVBLOCK
         <key>DOMAIN</key>
         <string>$DOMAIN</string>
@@ -111,7 +425,6 @@ install_services_macos() {
 ENVBLOCK
   )
 
-  # Generate one sync plist per vault
   for name in "${VAULT_NAMES[@]}"; do
     LABEL="com.obsidian-mcp.sync-${name}"
     cat > "$PLIST_DIR/$LABEL.plist" <<PLIST
@@ -149,7 +462,6 @@ PLIST
     launchctl bootstrap system "$PLIST_DIR/$LABEL.plist"
   done
 
-  # MCP server plist
   LABEL="com.obsidian-mcp.server"
   cat > "$PLIST_DIR/$LABEL.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -183,7 +495,6 @@ PLIST
   launchctl bootout system "$PLIST_DIR/$LABEL.plist" 2>/dev/null || true
   launchctl bootstrap system "$PLIST_DIR/$LABEL.plist"
 
-  # Caddy plist
   LABEL="com.obsidian-mcp.caddy"
   cat > "$PLIST_DIR/$LABEL.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -224,251 +535,22 @@ PLIST
   echo "    Logs: /tmp/obsidian-*.log"
 }
 
-# --- Root check ---
-if [ "$(id -u)" -ne 0 ]; then
-  error "Run as root: sudo ./setup.sh"
-  exit 1
-fi
-
-echo ""
-echo "  obsidian-mcp setup"
-echo "  ==================="
-echo ""
-
-# --- Step 1: Check prerequisites ---
-info "Checking that required tools are installed..."
-check_command node "https://nodejs.org/ (v22+)"
-check_command caddy "https://caddyserver.com/docs/install"
-check_command ob "npm install -g obsidian-headless"
-check_command openssl
-
-success "All prerequisites found."
-echo ""
-
-# --- Step 2: Domain ---
-EXISTING_DOMAIN=""
-if [ -f "$PROJECT_DIR/.env" ]; then
-  EXISTING_DOMAIN=$(grep '^DOMAIN=' "$PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2 || true)
-fi
-
-if [ -n "$EXISTING_DOMAIN" ]; then
-  DEFAULT_DOMAIN="$EXISTING_DOMAIN"
-else
-  # Auto-detect public IP and use sslip.io (free wildcard DNS, no config needed)
-  PUBLIC_IP=$(curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null || curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)
-  if [ -n "$PUBLIC_IP" ]; then
-    DEFAULT_DOMAIN="${PUBLIC_IP//./-}.sslip.io"
-  else
-    DEFAULT_DOMAIN="obsidian.example.com"
-  fi
-fi
-
-info "Your MCP server needs a domain for HTTPS."
-echo "    If you have a domain, enter it. Otherwise, press Enter to use the"
-echo "    auto-generated sslip.io domain (free, no DNS config needed)."
-echo ""
-read -rp "Domain [$DEFAULT_DOMAIN]: " DOMAIN
-DOMAIN="${DOMAIN:-$DEFAULT_DOMAIN}"
-
-if [ "$DOMAIN" = "obsidian.example.com" ]; then
-  error "Could not auto-detect your server's public IP."
-  echo "    Please enter your domain or IP-based sslip.io domain manually."
-  echo "    Example: 49-13-100-42.sslip.io"
-  exit 1
-fi
-
-echo ""
-
-# --- Step 3: Obsidian login ---
-info "Checking if you're logged into Obsidian..."
-if ob sync-list-remote &>/dev/null; then
-  success "Already logged into Obsidian."
-else
-  warn "Not logged in. Opening Obsidian login..."
-  echo "    You'll need your Obsidian account email and password."
+print_client_config() {
+  local url="$1"
+  echo "========================================="
   echo ""
-  ob login
-fi
-echo ""
-
-# --- Step 4: Vault setup ---
-VAULT_BASE="$PROJECT_DIR/vaults"
-mkdir -p "$VAULT_BASE"
-
-# Collect list of vaults to sync (new + existing)
-VAULT_NAMES=()
-
-# Detect already-synced vaults (subdirectories of vaults/)
-for dir in "$VAULT_BASE"/*/; do
-  [ -d "$dir" ] || continue
-  name=$(basename "$dir")
-  VAULT_NAMES+=("$name")
-  success "Vault \"$name\" already synced. Skipping."
-done
-
-# If no vaults exist yet, we need at least one
-if [ ${#VAULT_NAMES[@]} -eq 0 ]; then
-  info "Your Obsidian Sync vaults:"
+  echo "  Add this to your MCP client:"
   echo ""
-  ob sync-list-remote
+  echo "  Claude Code:  ~/.claude/settings.json"
+  echo "  Claude Desktop: Settings > MCP Servers"
+  echo "  Cursor:       .cursor/mcp.json"
   echo ""
-
-  echo "    Enter the name of the vault you want AI agents to access."
-  read -rp "Vault name: " VAULT_NAME
-  if [ -z "$VAULT_NAME" ]; then
-    error "Vault name is required."
-    exit 1
-  fi
-
-  SAFE_NAME=$(sanitize_name "$VAULT_NAME")
-  VAULT_DIR="$VAULT_BASE/$SAFE_NAME"
-  mkdir -p "$VAULT_DIR"
-
-  info "Connecting to vault \"$VAULT_NAME\"..."
-  ob sync-setup --vault "$VAULT_NAME" --path "$VAULT_DIR"
-
-  info "Downloading vault contents (this may take a moment for large vaults)..."
-  ob sync --path "$VAULT_DIR"
-  success "Vault \"$VAULT_NAME\" synced to $VAULT_DIR."
-
-  VAULT_NAMES+=("$SAFE_NAME")
-  SHOWN_REMOTE_LIST=true
-fi
-
-# Ask if they want to add more vaults
-while true; do
-  echo ""
-  read -rp "Add another vault? [y/N]: " ADD_MORE
-  if [[ ! "${ADD_MORE:-n}" =~ ^[Yy] ]]; then
-    break
-  fi
-
-  # Only show vault list if we haven't already
-  if [ "${SHOWN_REMOTE_LIST:-}" != "true" ]; then
-    echo ""
-    info "Your Obsidian Sync vaults:"
-    echo ""
-    ob sync-list-remote
-    echo ""
-    SHOWN_REMOTE_LIST=true
-  fi
-
-  read -rp "Vault name: " VAULT_NAME
-  if [ -z "$VAULT_NAME" ]; then
-    warn "Skipped (empty name)."
-    continue
-  fi
-
-  SAFE_NAME=$(sanitize_name "$VAULT_NAME")
-
-  # Skip if already synced
-  if [[ " ${VAULT_NAMES[*]} " == *" $SAFE_NAME "* ]]; then
-    warn "Vault \"$VAULT_NAME\" is already set up. Skipping."
-    continue
-  fi
-
-  VAULT_DIR="$VAULT_BASE/$SAFE_NAME"
-  mkdir -p "$VAULT_DIR"
-
-  info "Connecting to vault \"$VAULT_NAME\"..."
-  ob sync-setup --vault "$VAULT_NAME" --path "$VAULT_DIR"
-
-  info "Downloading vault contents (this may take a moment for large vaults)..."
-  ob sync --path "$VAULT_DIR"
-  success "Vault \"$VAULT_NAME\" synced to $VAULT_DIR."
-
-  VAULT_NAMES+=("$SAFE_NAME")
-done
-
-echo ""
-info "Vaults configured: ${VAULT_NAMES[*]}"
-echo ""
-
-# --- Step 5: Generate API key and .env ---
-info "Configuring authentication..."
-if [ -f "$PROJECT_DIR/.env" ]; then
-  EXISTING_KEY=$(grep '^API_KEY=' "$PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2 || true)
-  if [ -n "$EXISTING_KEY" ]; then
-    read -rp "API key already exists. Regenerate? [y/N]: " REGEN
-    if [[ "${REGEN:-n}" =~ ^[Yy] ]]; then
-      API_KEY=$(openssl rand -hex 32)
-      info "Generated new API key."
-    else
-      API_KEY="$EXISTING_KEY"
-      info "Keeping existing API key."
-    fi
-  else
-    API_KEY=$(openssl rand -hex 32)
-    info "Generated API key for securing your MCP server."
-  fi
-else
-  API_KEY=$(openssl rand -hex 32)
-  info "Generated API key for securing your MCP server."
-fi
-
-# Update .env in place if it exists (preserves custom vars), otherwise create
-ENV_FILE="$PROJECT_DIR/.env"
-if [ -f "$ENV_FILE" ]; then
-  if grep -q '^DOMAIN=' "$ENV_FILE"; then
-    sed -i.bak "s|^DOMAIN=.*|DOMAIN=$DOMAIN|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
-  else
-    echo "DOMAIN=$DOMAIN" >> "$ENV_FILE"
-  fi
-  if grep -q '^API_KEY=' "$ENV_FILE"; then
-    sed -i.bak "s|^API_KEY=.*|API_KEY=$API_KEY|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
-  else
-    echo "API_KEY=$API_KEY" >> "$ENV_FILE"
-  fi
-else
-  cat > "$ENV_FILE" <<EOF
-DOMAIN=$DOMAIN
-API_KEY=$API_KEY
-EOF
-fi
-
-success "Configuration saved to .env"
-echo ""
-
-# --- Step 6: Build the MCP server ---
-info "Installing Node.js dependencies and building..."
-cd "$PROJECT_DIR"
-npm ci --silent
-npm run build --silent
-success "MCP server built."
-echo ""
-
-# --- Step 7: Detect paths ---
-OB_BIN=$(command -v ob)
-NODE_BIN=$(command -v node)
-NODE_BIN_DIR=$(dirname "$NODE_BIN")
-CADDY_BIN=$(command -v caddy)
-
-# --- Step 8: Install and start services ---
-if [ "$OS" = "Darwin" ]; then
-  install_services_macos
-else
-  install_services_linux
-fi
-
-echo ""
-
-# --- Step 9: Print client config ---
-echo "========================================="
-echo ""
-echo "  Setup complete! Add this to your AI"
-echo "  tool's MCP config to connect it to"
-echo "  your vault:"
-echo ""
-echo "  Claude Code:  ~/.claude/settings.json"
-echo "  Claude Desktop: Settings > MCP Servers"
-echo "  Cursor:       .cursor/mcp.json"
-echo ""
-cat <<EOF
+  cat <<EOF
   {
     "mcpServers": {
       "obsidian": {
         "type": "streamableHttp",
-        "url": "https://${DOMAIN}/mcp",
+        "url": "$url",
         "headers": {
           "Authorization": "Bearer $API_KEY"
         }
@@ -476,14 +558,75 @@ cat <<EOF
     }
   }
 EOF
-echo ""
-if [ ${#VAULT_NAMES[@]} -gt 1 ]; then
-  echo "  Your vaults are accessible as subfolders:"
-  for name in "${VAULT_NAMES[@]}"; do
-    echo "    - $name/"
-  done
   echo ""
-fi
-echo "========================================="
+  if [ ${#VAULT_NAMES[@]} -gt 1 ]; then
+    echo "  Your vaults are accessible as subfolders:"
+    for name in "${VAULT_NAMES[@]}"; do
+      echo "    - $name/"
+    done
+    echo ""
+  fi
+  echo "========================================="
+  echo ""
+}
+
+print_quickstart_summary() {
+  print_client_config "$QUICKSTART_URL"
+  success "Your remote MCP endpoint is live at $QUICKSTART_URL"
+  echo "    This URL is temporary. If cloudflared restarts or the machine reboots, expect a new URL."
+  echo "    Good for first success and testing."
+  echo "    Logs: $LOG_DIR"
+  echo "    Stop processes: make quickstart-stop"
+}
+
+print_production_summary() {
+  print_client_config "https://${DOMAIN}/mcp"
+  success "Your MCP server is live at https://${DOMAIN}/mcp"
+  echo "    This is the durable mode: stable domain, system services, better long-term uptime."
+}
+
+ensure_mode_permissions
+
 echo ""
-success "Your MCP server is live at https://${DOMAIN}/mcp"
+echo "  obsidian-mcp setup"
+echo "  ==================="
+echo ""
+
+if [ "$MODE" = "quickstart" ]; then
+  echo "  Quickstart mode: public remote MCP endpoint now via cloudflared."
+  echo "  No Caddy. No system services. No root."
+  echo "  Tradeoff: fast and simple, but the URL is temporary and depends on this machine staying up."
+else
+  echo "  Production mode: system services + Caddy + stable HTTPS domain."
+  echo "  Tradeoff: more setup, but better durability and a stable endpoint."
+fi
+echo ""
+
+require_prerequisites
+if [ "$MODE" = "production" ]; then
+  configure_domain
+fi
+ensure_obsidian_login
+setup_vaults
+configure_auth
+build_server
+
+OB_BIN=$(command -v ob)
+NODE_BIN=$(command -v node)
+NODE_BIN_DIR=$(dirname "$NODE_BIN")
+
+if [ "$MODE" = "quickstart" ]; then
+  CLOUDFLARED_BIN=$(command -v cloudflared)
+  start_quickstart_processes
+  echo ""
+  print_quickstart_summary
+else
+  CADDY_BIN=$(command -v caddy)
+  if [ "$OS" = "Darwin" ]; then
+    install_services_macos
+  else
+    install_services_linux
+  fi
+  echo ""
+  print_production_summary
+fi

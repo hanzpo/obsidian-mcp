@@ -246,6 +246,28 @@ describe("tools via MCP protocol", () => {
     expect(text).toContain("Projects/alpha.md");
   });
 
+  it("search_notes sees newly created notes immediately after cache priming", async () => {
+    await client.callTool({
+      name: "search_notes",
+      arguments: { query: "alpha" },
+    });
+
+    await client.callTool({
+      name: "create_note",
+      arguments: {
+        path: "Notes/fresh.md",
+        content: "# Fresh\nContains cachebustterm.",
+      },
+    });
+
+    const result = await client.callTool({
+      name: "search_notes",
+      arguments: { query: "cachebustterm" },
+    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toContain("Notes/fresh.md");
+  });
+
   it("search_notes returns no results for gibberish", async () => {
     const result = await client.callTool({
       name: "search_notes",
@@ -338,6 +360,27 @@ describe("tools via MCP protocol", () => {
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     expect(text).toContain("Outgoing links:");
     expect(text).toContain("wikilink");
+  });
+
+  it("get_links sees newly created targets immediately after cache priming", async () => {
+    const initial = await client.callTool({
+      name: "get_links",
+      arguments: { path: "Notes/hello.md" },
+    });
+    const initialText = (initial.content as Array<{ type: string; text: string }>)[0].text;
+    expect(initialText).toContain("wikilink -> (unresolved)");
+
+    await client.callTool({
+      name: "create_note",
+      arguments: { path: "Notes/wikilink.md", content: "# Wikilink\nNow exists." },
+    });
+
+    const updated = await client.callTool({
+      name: "get_links",
+      arguments: { path: "Notes/hello.md" },
+    });
+    const updatedText = (updated.content as Array<{ type: string; text: string }>)[0].text;
+    expect(updatedText).toContain("wikilink -> Notes/wikilink.md");
   });
 
   it("rejects path traversal", async () => {

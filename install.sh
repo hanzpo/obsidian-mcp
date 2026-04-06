@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Reopen stdin from terminal so interactive prompts work when piped (curl | bash)
+if [ ! -t 0 ]; then
+  exec </dev/tty
+fi
+
 REPO="https://github.com/hanzpo/obsidian-mcp.git"
 INSTALL_DIR="$(pwd)/obsidian-mcp"
 OS="$(uname -s)"
@@ -10,20 +15,53 @@ success() { echo -e "\033[1;32m==>\033[0m $*"; }
 warn()    { echo -e "\033[1;33m==>\033[0m $*"; }
 error()   { echo -e "\033[1;31m==>\033[0m $*" >&2; }
 
-if [ "$(id -u)" -ne 0 ]; then
-  error "Run as root: curl -fsSL <url> | sudo bash"
-  exit 1
-fi
+prompt_install_mode() {
+  echo ""
+  echo "Choose setup mode:"
+  echo ""
+  echo "  1) Quickstart"
+  echo "     Best for: trying it fast on your own machine"
+  echo "     Remote URL: yes"
+  echo "     URL stability: temporary, changes if the tunnel restarts"
+  echo "     Setup: easiest, no sudo, no Caddy, no system services"
+  echo "     Reliability: fine while this machine stays on and the processes keep running"
+  echo ""
+  echo "  2) Production"
+  echo "     Best for: a stable always-on endpoint"
+  echo "     Remote URL: yes"
+  echo "     URL stability: stable domain"
+  echo "     Setup: more work, requires sudo/root, Caddy, and system services"
+  echo "     Reliability: best for long-term self-hosting"
+  echo ""
 
-echo ""
-echo "  obsidian-mcp installer"
-echo "  ======================"
-echo ""
-echo "  This will install obsidian-mcp and its dependencies"
-echo "  (Node.js, Caddy, obsidian-headless) if they're missing."
-echo ""
+  local choice
+  read -rp "Mode [1]: " choice
+  case "${choice:-1}" in
+    1) MODE="quickstart" ;;
+    2) MODE="production" ;;
+    *)
+      error "Invalid choice. Enter 1 or 2."
+      exit 1
+      ;;
+  esac
+}
 
-# --- Install Node.js via nvm if missing ---
+ensure_mode_permissions() {
+  if [ "$MODE" = "quickstart" ] && [ "$(id -u)" -eq 0 ]; then
+    error "Quickstart should be run as your normal user so Obsidian login and background processes live in your account."
+    echo "    Re-run without sudo:"
+    echo "    curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | bash"
+    exit 1
+  fi
+
+  if [ "$MODE" = "production" ] && [ "$(id -u)" -ne 0 ]; then
+    error "Production install needs root so it can install packages and register system services."
+    echo "    Re-run with sudo:"
+    echo "    curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | sudo bash"
+    exit 1
+  fi
+}
+
 install_node() {
   if command -v node &>/dev/null; then
     NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
@@ -34,7 +72,7 @@ install_node() {
     warn "Node.js $(node -v) found, but v22+ is required. Upgrading..."
   fi
 
-  info "Installing Node.js 22 via nvm (needed to run the MCP server and obsidian-headless)..."
+  info "Installing Node.js 22 via nvm..."
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
   if [ ! -d "$NVM_DIR" ]; then
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
@@ -45,18 +83,16 @@ install_node() {
   success "Node.js $(node -v) installed."
 }
 
-# --- Install Caddy if missing ---
 install_caddy() {
   if command -v caddy &>/dev/null; then
     success "Caddy already installed."
     return
   fi
 
-  info "Installing Caddy (handles HTTPS and reverse proxy)..."
+  info "Installing Caddy (production mode HTTPS reverse proxy)..."
 
   case "$OS" in
     Darwin)
-      # macOS — use Homebrew
       if ! command -v brew &>/dev/null; then
         error "Homebrew is required on macOS. Install from https://brew.sh"
         exit 1
@@ -84,7 +120,6 @@ install_caddy() {
         exit 1
       fi
 
-      # Stop the default caddy service — we manage our own
       systemctl stop caddy 2>/dev/null || true
       systemctl disable caddy 2>/dev/null || true
       ;;
@@ -97,7 +132,67 @@ install_caddy() {
   success "Caddy installed."
 }
 
-# --- Install obsidian-headless if missing ---
+download_cloudflared_binary() {
+  local arch
+  arch="$(uname -m)"
+  local bin_dir="$HOME/.local/bin"
+  local target="$bin_dir/cloudflared"
+  local url=""
+  mkdir -p "$bin_dir"
+
+  case "$OS:$arch" in
+    Linux:x86_64)
+      url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+      ;;
+    Linux:arm64|Linux:aarch64)
+      url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+      ;;
+    Darwin:x86_64)
+      url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz"
+      ;;
+    Darwin:arm64|Darwin:aarch64)
+      url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz"
+      ;;
+    *)
+      error "Unsupported OS/architecture for automatic cloudflared install: $OS / $arch"
+      exit 1
+      ;;
+  esac
+
+  info "Installing cloudflared (quickstart tunnel)..."
+
+  if [[ "$url" == *.tgz ]]; then
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    curl -fsSL "$url" -o "$tmpdir/cloudflared.tgz"
+    tar -xzf "$tmpdir/cloudflared.tgz" -C "$tmpdir"
+    cp "$tmpdir/cloudflared" "$target"
+    rm -rf "$tmpdir"
+  else
+    curl -fsSL "$url" -o "$target"
+  fi
+
+  chmod +x "$target"
+  export PATH="$bin_dir:$PATH"
+  success "cloudflared installed to $target"
+}
+
+install_cloudflared() {
+  if command -v cloudflared &>/dev/null; then
+    success "cloudflared already installed."
+    return
+  fi
+
+  if [ "$OS" = "Darwin" ] && command -v brew &>/dev/null; then
+    info "Installing cloudflared via Homebrew..."
+    brew install cloudflared
+    success "cloudflared installed."
+    return
+  fi
+
+  download_cloudflared_binary
+}
+
 install_ob() {
   if command -v ob &>/dev/null; then
     success "obsidian-headless already installed."
@@ -109,14 +204,46 @@ install_ob() {
   success "obsidian-headless installed."
 }
 
-# --- Install dependencies ---
+MODE="${OBSIDIAN_MCP_MODE:-}"
+if [ -z "$MODE" ]; then
+  prompt_install_mode
+fi
+
+case "$MODE" in
+  quickstart|production) ;;
+  *)
+    error "Unsupported mode: $MODE"
+    exit 1
+    ;;
+esac
+
+ensure_mode_permissions
+
+echo ""
+echo "  obsidian-mcp installer"
+echo "  ======================"
+echo ""
+if [ "$MODE" = "quickstart" ]; then
+  echo "  This will install obsidian-mcp, Node.js, cloudflared, and"
+  echo "  obsidian-headless, then give you a public remote MCP URL fast."
+  echo "  Tradeoff: easiest setup, but the URL is temporary."
+else
+  echo "  This will install obsidian-mcp and its production dependencies"
+  echo "  (Node.js, Caddy, obsidian-headless), then register system services."
+  echo "  Tradeoff: more setup, but you get a stable long-lived endpoint."
+fi
+echo ""
+
 install_node
-install_caddy
+if [ "$MODE" = "quickstart" ]; then
+  install_cloudflared
+else
+  install_caddy
+fi
 install_ob
 
 echo ""
 
-# --- Clone or update repo ---
 if [ -d "$INSTALL_DIR/.git" ]; then
   info "Updating existing installation at $INSTALL_DIR..."
   git -C "$INSTALL_DIR" pull --ff-only
@@ -127,5 +254,4 @@ fi
 
 echo ""
 
-# --- Hand off to setup.sh ---
-exec "$INSTALL_DIR/setup.sh"
+exec "$INSTALL_DIR/setup.sh" "--$MODE"

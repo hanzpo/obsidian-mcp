@@ -15,7 +15,7 @@ export function registerGetLinks(server: McpServer, services: Services) {
     },
     async ({ path }) => {
       const content = await services.fs.readFile(path);
-      const outgoing = await services.wikilinks.resolveLinks(content);
+      const outgoing = await services.wikilinks.resolveLinks(content, path);
       const backlinks = await services.wikilinks.findBacklinks(path);
 
       const outText = outgoing.length > 0

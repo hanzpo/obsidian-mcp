@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
-import type { Services } from "../server.js";
+import { invalidateDerivedCaches, type Services } from "../server.js";
 
 export function registerMoveNote(server: McpServer, services: Services) {
   server.registerTool(
@@ -14,6 +14,7 @@ export function registerMoveNote(server: McpServer, services: Services) {
     },
     async ({ oldPath, newPath }) => {
       await services.fs.moveFile(oldPath, newPath);
+      invalidateDerivedCaches(services);
       return {
         content: [{ type: "text" as const, text: `Moved ${oldPath} -> ${newPath}` }],
       };

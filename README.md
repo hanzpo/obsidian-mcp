@@ -1,41 +1,116 @@
 # obsidian-mcp
 
-Remote MCP server that gives AI agents read/write access to your Obsidian vault. Runs on a VPS alongside [obsidian-headless](https://github.com/obsidianmd/obsidian-headless) to keep the vault in sync via Obsidian Sync.
+Remote MCP server that gives AI agents read/write access to your Obsidian vaults by syncing them with [obsidian-headless](https://github.com/obsidianmd/obsidian-headless).
 
-## Architecture
+## Fastest Path
 
-```
-AI Agent (Claude, Cursor, etc.)
-  -- Streamable HTTP (HTTPS) -->
-    Caddy (auto-TLS) -> Node.js MCP Server
-                            |
-                        vault files on disk
-                            |
-                        ob sync --continuous  (systemd)
-                            |
-                        Obsidian Sync <-> your devices
+If your goal is "get a remote MCP URL working as fast as possible," use quickstart:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | bash
 ```
 
-All three services (Caddy, MCP server, vault sync) run directly on the host -- systemd on Linux, launchd on macOS. No Docker required.
+Quickstart does this:
 
-## Prerequisites
+- installs Node.js, `obsidian-headless`, and `cloudflared` if needed
+- walks you through `ob login`
+- lets you pick one or more Obsidian Sync vaults
+- performs the initial sync
+- starts the MCP server and continuous sync in the background
+- opens a public HTTPS tunnel and prints ready-to-paste MCP config
 
-- A server (e.g. Hetzner VPS) or a Mac
-- An [Obsidian Sync](https://obsidian.md/sync) subscription
+No sudo, no Caddy, no system services. The tradeoff is that the public tunnel URL is temporary and changes each time you rerun quickstart.
 
-That's it. No domain needed -- the installer auto-configures one via [sslip.io](https://sslip.io). Works on Linux (Debian/Ubuntu/Fedora) and macOS. Node.js, Caddy, and everything else is handled automatically.
+## Modes
 
-## Install
+| Mode | Best for | Remote URL | URL stability | Infra burden | Survives reboot by default |
+|------|----------|------------|---------------|--------------|----------------------------|
+| Quickstart | First success, testing, running on your own machine | Yes | Temporary `trycloudflare.com` URL | Low | No |
+| Production | Long-term self-hosting | Yes | Stable domain | Higher | Yes |
+
+### 1. Quickstart
+
+Best for first success and testing with Poke or any remote MCP client.
+
+Architecture:
+
+```text
+AI Agent
+  --> HTTPS -->
+    cloudflared tunnel
+      --> local MCP server
+            |
+            --> synced vaults on disk
+            --> ob sync --continuous
+```
+
+Use when you want:
+
+- a remote MCP endpoint now
+- minimal setup
+- no domain or reverse proxy work
+
+Tradeoffs:
+
+- easiest path from zero to working remote MCP
+- works well on a laptop, desktop, or home server
+- URL is temporary and usually changes if the tunnel restarts
+- depends on this machine staying on and the background processes staying alive
+
+Manage quickstart processes:
+
+```bash
+make quickstart         # rerun quickstart flow
+make quickstart-status  # show running background processes
+make quickstart-logs    # tail quickstart logs
+make quickstart-stop    # stop quickstart background processes
+```
+
+### 2. Production
+
+Best for an always-on self-hosted deployment with a stable domain.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | sudo bash
 ```
 
-The script installs dependencies, walks you through Obsidian login and vault selection, and starts all services. You can sync multiple vaults -- the setup script will ask if you want to add more. At the end it prints the MCP client config to paste into Claude Desktop, Claude Code, Cursor, etc.
+Production does this:
+
+- installs Node.js, Caddy, and `obsidian-headless`
+- syncs one or more vaults
+- configures HTTPS with Caddy
+- installs system services via systemd or launchd
+- prints a stable remote MCP URL
+
+Tradeoffs:
+
+- more moving parts up front
+- requires sudo/root
+- best if you want a stable endpoint you can leave running for a long time
+- better fit for a VPS, Mac mini, or other always-on machine
+
+Architecture:
+
+```text
+AI Agent
+  --> HTTPS -->
+    Caddy
+      --> MCP server
+            |
+            --> synced vaults on disk
+            --> ob sync --continuous
+```
+
+## Prerequisites
+
+- an [Obsidian Sync](https://obsidian.md/sync) subscription
+- a machine that can stay online while you use the MCP server
+
+Production mode also benefits from a server or machine with a reachable public IP. Quickstart works well even when you do not want to manage domains and TLS yourself.
 
 ## Manual Setup
 
-If you prefer to set things up yourself:
+If you want to install things yourself instead of using `install.sh`:
 
 1. Clone and enter the repo:
 
@@ -44,54 +119,43 @@ git clone https://github.com/hanzpo/obsidian-mcp.git
 cd obsidian-mcp
 ```
 
-2. Install obsidian-headless and log in:
+2. Install dependencies:
 
 ```bash
 npm install -g obsidian-headless
-ob login
 ```
 
-3. Create the vault directory and sync (each vault gets its own subfolder):
+Quickstart also needs:
 
 ```bash
-mkdir -p vaults/my-vault
-ob sync-list-remote                                      # find your vault name
-ob sync-setup --vault "My Vault" --path ./vaults/my-vault
-ob sync --path ./vaults/my-vault                         # initial pull
+brew install cloudflared              # macOS
+# or install cloudflared another way on Linux
 ```
 
-Repeat for additional vaults (`vaults/work`, `vaults/notes`, etc.).
-
-4. Generate API key and configure:
+Production also needs:
 
 ```bash
-make keygen       # creates .env with a random API key
+# install Caddy
 ```
 
-Edit `.env` to set your domain (or use `<your-ip>.sslip.io` if you don't have one):
-
-```
-DOMAIN=obsidian.example.com
-API_KEY=<generated>
-```
-
-5. Build, install, and start (requires root for systemd):
+3. Run setup:
 
 ```bash
-sudo make install      # builds app, generates systemd units, enables services
-sudo make start
+./setup.sh --quickstart
+# or
+sudo ./setup.sh --production
 ```
 
 ## Client Config
 
-Add to your MCP client (Claude Desktop, Claude Code, Cursor, etc.):
+Both modes print a ready-to-paste MCP config at the end. It looks like this:
 
 ```json
 {
   "mcpServers": {
     "obsidian": {
       "type": "streamableHttp",
-      "url": "https://your-domain.com/mcp",
+      "url": "https://your-endpoint.example/mcp",
       "headers": {
         "Authorization": "Bearer <your-api-key>"
       }
@@ -122,68 +186,61 @@ Add to your MCP client (Claude Desktop, Claude Code, Cursor, etc.):
 
 | Command | What it does |
 |---------|-------------|
+| `make quickstart` | Run quickstart flow |
+| `make quickstart-status` | Show quickstart background processes |
+| `make quickstart-logs` | Tail quickstart logs |
+| `make quickstart-stop` | Stop quickstart processes |
 | `make build` | Install deps and compile TypeScript |
-| `make install` | Build + generate systemd units + enable services |
-| `make start` | Start all services |
-| `make stop` | Stop all services |
-| `make restart` | Restart all services |
-| `make status` | Check service status |
-| `make logs` | Tail all logs |
-| `make logs-sync` | Tail vault sync logs |
-| `make logs-mcp` | Tail MCP server logs |
-| `make logs-caddy` | Tail Caddy logs |
-| `make keygen` | Generate/rotate API key |
+| `make install` | Production build + generate service units + enable services |
+| `make start` | Start production services |
+| `make stop` | Stop production services |
+| `make restart` | Restart production services |
+| `make status` | Check production service status |
+| `make logs` | Tail production logs |
+| `make logs-sync` | Tail production sync logs |
+| `make logs-mcp` | Tail production MCP server logs |
+| `make logs-caddy` | Tail production Caddy logs |
+| `make keygen` | Generate or rotate API key |
 | `make update` | Pull latest, rebuild, reinstall, and restart |
 
 ## Troubleshooting
 
-**Services won't start**
+**Quickstart tunnel did not come up**
 
 ```bash
-make status              # check which service failed
-make logs                # see what went wrong
+make quickstart-logs
 ```
 
-**HTTPS/certificate errors**
+Look at `.obsidian-mcp/logs/cloudflared.log`.
 
-If using sslip.io, make sure ports 80 and 443 are open in your firewall. Caddy needs port 80 for the Let's Encrypt ACME challenge.
+**Sync is not working**
+
+```bash
+ob sync-list-remote
+make quickstart-logs     # quickstart
+make logs-sync           # production
+```
+
+If `ob login` keeps asking for credentials, run it again and rerun setup.
+
+**Production HTTPS/certificate errors**
+
+If using sslip.io, make sure ports 80 and 443 are open. Caddy needs port 80 for the ACME challenge.
 
 ```bash
 ufw allow 80/tcp
 ufw allow 443/tcp
 ```
 
-**Sync not working**
-
-```bash
-make logs-sync           # check for auth or network errors
-ob sync-list-remote      # verify you're still logged in
-```
-
-If `ob login` keeps asking for credentials, your auth token may have expired. Run `ob login` again and restart:
-
-```bash
-ob login
-make restart
-```
-
-**Port 443 already in use**
-
-Another service (nginx, apache) may be using port 443. Stop it first:
-
-```bash
-ss -tlnp | grep 443     # find what's using the port
-```
-
 **Re-running setup**
 
-`setup.sh` is safe to re-run. It skips steps that are already done (vault exists, API key exists) and asks before overwriting anything.
+`setup.sh` is safe to re-run. In quickstart it restarts the background MCP, sync, and tunnel processes. In production it refreshes services and configuration.
 
 ## Development
 
 ```bash
 npm ci
-npm run dev          # start with hot reload
-npm test             # run tests
-npm run check        # tsc + eslint + tests
+npm run dev
+npm test
+npm run check
 ```

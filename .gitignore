@@ -3,6 +3,7 @@ dist/
 .env
 *.tgz
 vaults/
+.obsidian-mcp/
 
 # Caddy data (if running locally)
 caddy_data/

@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
-import type { Services } from "../server.js";
+import { invalidateDerivedCaches, type Services } from "../server.js";
 
 export function registerCreateNote(server: McpServer, services: Services) {
   server.registerTool(
@@ -36,6 +36,7 @@ export function registerCreateNote(server: McpServer, services: Services) {
       }
 
       await services.fs.writeFile(path, body);
+      invalidateDerivedCaches(services);
       return {
         content: [{ type: "text" as const, text: `Created note at ${path}` }],
       };
