@@ -26,6 +26,12 @@ Quickstart does this:
 
 No sudo, no Caddy, no system services. The tradeoff is that the public tunnel URL is temporary and changes each time you rerun quickstart.
 
+## Which Mode Should I Use?
+
+- If this is your laptop or desktop and you already use the Obsidian app there, run `npm run setup` and use quickstart. The app will mount your real local vault folders directly.
+- If this is a VPS, home server, or other separate machine without local Obsidian desktop vaults, run `npm run setup` and choose production.
+- If local Obsidian desktop vaults are detected, `obsidian-headless` is blocked on that same machine to avoid sync conflicts.
+
 ## Modes
 
 | Mode | Best for | Remote URL | URL stability | Infra burden | Survives reboot by default |
@@ -121,6 +127,28 @@ AI Agent
 - for desktop-vault quickstart on your own machine: a local Obsidian app install with at least one vault already configured
 
 Production mode also benefits from a server or machine with a reachable public IP. Quickstart works well even when you do not want to manage domains and TLS yourself.
+
+## Where Files Live
+
+- Install directory:
+  - user install default: `~/.local/share/obsidian-mcp`
+  - production install default: `/opt/obsidian-mcp`
+- Local generated config for this install: `.env`
+- Local runtime state for this install: `.obsidian-mcp/`
+  - PID files
+  - logs
+  - active mode marker
+  - mounted desktop-vault map
+- Headless sync mirrors: `vaults/`
+  - only used when the machine is running `obsidian-headless`
+- Real desktop vault folders:
+  - not copied into this repo
+  - not owned by this app
+  - mounted directly from the paths already managed by the Obsidian app
+- `~/.obsidian-headless`
+  - owned by `obsidian-headless`
+  - stores its auth/local sync state
+  - not removed by `npm run uninstall`
 
 ## Manual Setup
 
@@ -219,6 +247,20 @@ Recommended commands:
 | `npm run keygen` | Generate or rotate the API key |
 | `npm run uninstall` | Safely remove obsidian-mcp setup from this machine |
 
+## Active Mode
+
+- `npm run setup` is the only setup entrypoint.
+- During setup, you choose quickstart or production.
+- That choice is remembered in `.obsidian-mcp/mode`.
+- After that, `npm run status`, `logs`, `stop`, `restart`, and `update` act on the active mode automatically.
+- If no active mode is detected, those commands tell you to run `npm run setup` first.
+
+## Auth Notes
+
+- The printed client config uses `Authorization: Bearer <api-key>`, which is the preferred option.
+- For compatibility with some clients and transports, the server also accepts `X-API-Key`, `?api_key=...`, and `?token=...`.
+- Quickstart URLs are temporary `trycloudflare.com` endpoints. If the tunnel restarts or the machine reboots, expect a new URL.
+
 ## Troubleshooting
 
 **Quickstart tunnel did not come up**
@@ -251,6 +293,12 @@ ufw allow 443/tcp
 
 `setup.sh` is safe to re-run. In quickstart it restarts the background MCP, sync, and tunnel processes. In production it refreshes services and configuration.
 
+**What `npm run update` does**
+
+- runs `git pull`
+- reruns setup for the active mode
+- quickstart stays quickstart, production stays production
+
 **Start over safely**
 
 ```bash
@@ -263,6 +311,20 @@ That removes obsidian-mcp's generated config and services from this machine afte
 - synced vault contents under `vaults/`
 - `~/.obsidian-headless`
 - remote Obsidian Sync state
+
+## Uninstall vs Purge
+
+- `npm run uninstall` is a safe uninstall.
+- It removes this app's generated config, runtime files, and installed services from this machine.
+- It does not delete your notes, your desktop vault folders, your headless state, or your remote Obsidian Sync state.
+- If you want a real purge of synced mirrors or `~/.obsidian-headless`, do that manually after uninstall.
+
+## Recovery
+
+- If something looks broken, start with `npm run status` and `npm run logs`.
+- If you changed configuration or updated the repo, run `npm run update`.
+- If you want to choose the mode again or rebuild local state, rerun `npm run setup`.
+- If you want to remove the app cleanly without touching note state, run `npm run uninstall`.
 
 ## Development
 
