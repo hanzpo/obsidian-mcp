@@ -9,7 +9,12 @@ import { createMcpServer, createServices } from "./server.js";
 const config = loadConfig();
 const services = createServices(config);
 
-const app = createMcpExpressApp({ host: config.host });
+// The server may bind locally (for example quickstart on 127.0.0.1) while still
+// being accessed via a public tunnel hostname. Passing a localhost host here
+// would enable DNS rebinding protection that rejects the tunnel Host header.
+const app = createMcpExpressApp({
+  host: config.host === "127.0.0.1" ? "0.0.0.0" : config.host,
+});
 app.use(createAuthMiddleware(config.apiKey));
 
 const transports = new Map<string, StreamableHTTPServerTransport>();

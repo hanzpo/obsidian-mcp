@@ -2,9 +2,17 @@ import { describe, it, expect, vi } from "vitest";
 import type { Request, Response, NextFunction } from "express";
 import { createAuthMiddleware } from "../auth.js";
 
-function mockReqRes(authHeader?: string) {
+function mockReqRes(options?: {
+  authHeader?: string;
+  xApiKey?: string;
+  query?: Record<string, string | undefined>;
+}) {
   const req = {
-    headers: { authorization: authHeader },
+    headers: {
+      authorization: options?.authHeader,
+      "x-api-key": options?.xApiKey,
+    },
+    query: options?.query ?? {},
   } as unknown as Request;
   const res = {
     status: vi.fn().mockReturnThis(),
@@ -18,7 +26,25 @@ describe("createAuthMiddleware", () => {
   const middleware = createAuthMiddleware("test-secret-key");
 
   it("passes valid bearer token", () => {
-    const { req, res, next } = mockReqRes("Bearer test-secret-key");
+    const { req, res, next } = mockReqRes({
+      authHeader: "Bearer test-secret-key",
+    });
+    middleware(req, res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("passes valid x-api-key token", () => {
+    const { req, res, next } = mockReqRes({
+      xApiKey: "test-secret-key",
+    });
+    middleware(req, res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("passes valid api_key query token", () => {
+    const { req, res, next } = mockReqRes({
+      query: { api_key: "test-secret-key" },
+    });
     middleware(req, res, next);
     expect(next).toHaveBeenCalled();
   });
@@ -31,28 +57,34 @@ describe("createAuthMiddleware", () => {
   });
 
   it("rejects non-bearer auth", () => {
-    const { req, res, next } = mockReqRes("Basic dXNlcjpwYXNz");
+    const { req, res, next } = mockReqRes({
+      authHeader: "Basic dXNlcjpwYXNz",
+    });
     middleware(req, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });
 
   it("rejects wrong key", () => {
-    const { req, res, next } = mockReqRes("Bearer wrong-key");
+    const { req, res, next } = mockReqRes({
+      authHeader: "Bearer wrong-key",
+    });
     middleware(req, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });
 
   it("rejects empty bearer token", () => {
-    const { req, res, next } = mockReqRes("Bearer ");
+    const { req, res, next } = mockReqRes({ authHeader: "Bearer " });
     middleware(req, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });
 
   it("rejects key with extra characters", () => {
-    const { req, res, next } = mockReqRes("Bearer test-secret-key-extra");
+    const { req, res, next } = mockReqRes({
+      authHeader: "Bearer test-secret-key-extra",
+    });
     middleware(req, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
