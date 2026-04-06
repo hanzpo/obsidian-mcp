@@ -42,6 +42,10 @@ info()    { echo -e "\033[1;34m==>\033[0m $*"; }
 success() { echo -e "\033[1;32m==>\033[0m $*"; }
 warn()    { echo -e "\033[1;33m==>\033[0m $*"; }
 error()   { echo -e "\033[1;31m==>\033[0m $*" >&2; }
+BOLD="\033[1m"
+CYAN="\033[1;36m"
+GREEN="\033[1;32m"
+RESET="\033[0m"
 
 prompt_setup_mode() {
   echo "Choose setup mode:"
@@ -880,9 +884,15 @@ PLIST
 
 print_client_config() {
   local url="$1"
-  echo "========================================="
+  echo -e "${CYAN}=========================================${RESET}"
   echo ""
-  echo "  Add this to your MCP client:"
+  echo -e "  ${BOLD}URL${RESET}"
+  echo -e "    ${GREEN}$url${RESET}"
+  echo ""
+  echo -e "  ${BOLD}API key${RESET}"
+  echo -e "    ${GREEN}$API_KEY${RESET}"
+  echo ""
+  echo -e "  ${BOLD}Full client config${RESET}"
   echo ""
   echo "  Claude Code:  ~/.claude/settings.json"
   echo "  Claude Desktop: Settings > MCP Servers"
@@ -909,7 +919,7 @@ EOF
     done
     echo ""
   fi
-  echo "========================================="
+  echo -e "${CYAN}=========================================${RESET}"
   echo ""
 }
 
