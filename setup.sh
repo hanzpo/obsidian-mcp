@@ -82,6 +82,14 @@ sanitize_name() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
 }
 
+ip_to_sslip_hostname() {
+  local ip="$1"
+  ip="${ip#[}"
+  ip="${ip%]}"
+  ip="${ip%%%*}"
+  printf '%s.sslip.io' "${ip//[:.]/-}"
+}
+
 alias_exists() {
   local candidate="$1"
   local entry
@@ -302,7 +310,7 @@ configure_domain() {
   else
     PUBLIC_IP=$(curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null || curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)
     if [ -n "$PUBLIC_IP" ]; then
-      DEFAULT_DOMAIN="${PUBLIC_IP//./-}.sslip.io"
+      DEFAULT_DOMAIN="$(ip_to_sslip_hostname "$PUBLIC_IP")"
     else
       DEFAULT_DOMAIN="obsidian.example.com"
     fi
@@ -325,10 +333,14 @@ configure_domain() {
   if [[ "$DOMAIN" != *.sslip.io ]]; then
     if [ -n "$PUBLIC_IP" ]; then
       info "DNS reminder for your custom domain"
-      echo "    Point an A record for $DOMAIN to $PUBLIC_IP before expecting HTTPS to work."
+      if [[ "$PUBLIC_IP" == *:* ]]; then
+        echo "    Point an AAAA record for $DOMAIN to $PUBLIC_IP before expecting HTTPS to work."
+      else
+        echo "    Point an A record for $DOMAIN to $PUBLIC_IP before expecting HTTPS to work."
+      fi
     else
       info "DNS reminder for your custom domain"
-      echo "    Point an A record for $DOMAIN to this server's public IP before expecting HTTPS to work."
+      echo "    Point an A record or AAAA record for $DOMAIN to this server's public IP before expecting HTTPS to work."
     fi
     echo "    Caddy will obtain TLS automatically once DNS resolves and ports 80 and 443 are reachable."
     echo ""

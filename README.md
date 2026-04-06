@@ -48,8 +48,8 @@ curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh
 - Uses `obsidian-headless`, Caddy, and system services.
 - Refuses to run on machines with local desktop vaults.
 - Best for a stable endpoint on a separate always-on machine.
-- If you use your own domain, point its `A` record at the server's public IP.
-- If you use `sslip.io`, no DNS changes are needed.
+- If you use your own domain, point its `A` record or `AAAA` record at the server's public IP.
+- If you use `sslip.io`, no DNS changes are needed. IPv4 and IPv6 public IPs are both supported.
 
 ## Prerequisites
 
