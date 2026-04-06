@@ -6,7 +6,7 @@ export function registerGetVaultStats(server: McpServer, services: Services) {
     "get_vault_stats",
     {
       description:
-        "Get statistics about the vault: total notes, folders, size, and recently modified files.",
+        "Summarize accessible markdown notes and folders, including total note count, folder count, total markdown size, and the 10 most recently modified markdown files. In mounted mode, stats span all mounted vault aliases.",
       inputSchema: {},
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

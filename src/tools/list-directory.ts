@@ -1,24 +1,25 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import type { Services } from "../server.js";
+import { DIRECTORY_PATH_DESCRIPTION } from "./descriptions.js";
 
 export function registerListDirectory(server: McpServer, services: Services) {
   server.registerTool(
     "list_directory",
     {
       description:
-        "List files and folders in the vault. Defaults to vault root.",
+        "List files and folders reachable through this MCP server. Empty path means the MCP root: the single vault root in single-vault mode, or the top-level mounted vault aliases in desktop-mounted mode.",
       inputSchema: {
         path: z
           .string()
           .optional()
           .default("")
-          .describe("Relative path to list (empty for vault root)"),
+          .describe(DIRECTORY_PATH_DESCRIPTION),
         recursive: z
           .boolean()
           .optional()
           .default(false)
-          .describe("Include subdirectories recursively"),
+          .describe("Set true to walk subdirectories recursively"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

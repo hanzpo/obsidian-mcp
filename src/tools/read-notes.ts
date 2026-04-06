@@ -1,17 +1,19 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import type { Services } from "../server.js";
+import { PATH_MODEL_GUIDANCE } from "./descriptions.js";
 
 export function registerReadNotes(server: McpServer, services: Services) {
   server.registerTool(
     "read_notes",
     {
-      description: "Read multiple notes at once (up to 10). Returns content for each.",
+      description:
+        "Read up to 10 notes in one call. Each requested path is returned independently, so some notes can succeed even if others fail.",
       inputSchema: {
         paths: z
           .array(z.string())
           .max(10)
-          .describe("Array of relative paths to notes"),
+          .describe(`Array of note paths. ${PATH_MODEL_GUIDANCE}`),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

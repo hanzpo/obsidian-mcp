@@ -1,22 +1,23 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import { invalidateDerivedCaches, type Services } from "../server.js";
+import { NOTE_PATH_DESCRIPTION } from "./descriptions.js";
 
 export function registerManageTags(server: McpServer, services: Services) {
   server.registerTool(
     "manage_tags",
     {
       description:
-        "Add, remove, or list tags on a note. Tags are stored in YAML frontmatter.",
+        "List, add, or remove frontmatter tags on a note. Tags are stored in the YAML tags field, and leading # is normalized away when adding or removing.",
       inputSchema: {
-        path: z.string().describe("Relative path to the note"),
+        path: z.string().describe(NOTE_PATH_DESCRIPTION),
         action: z
           .enum(["add", "remove", "list"])
           .describe("Tag operation to perform"),
         tags: z
           .array(z.string())
           .optional()
-          .describe("Tags to add or remove (not needed for list)"),
+          .describe("Tags to add or remove; not needed for list"),
       },
     },
     async ({ path, action, tags: inputTags }) => {

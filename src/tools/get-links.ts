@@ -1,15 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import type { Services } from "../server.js";
+import { NOTE_PATH_DESCRIPTION } from "./descriptions.js";
 
 export function registerGetLinks(server: McpServer, services: Services) {
   server.registerTool(
     "get_links",
     {
       description:
-        "Get outgoing [[wikilinks]] from a note and find backlinks (other notes linking to it).",
+        "Return outgoing [[wikilinks]] from one note plus backlinks from other accessible notes. Link matching is note-based across the accessible vault set and ignores headings and block refs when resolving targets.",
       inputSchema: {
-        path: z.string().describe("Relative path to the note"),
+        path: z.string().describe(NOTE_PATH_DESCRIPTION),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

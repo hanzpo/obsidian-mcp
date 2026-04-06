@@ -1,15 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import { invalidateDerivedCaches, type Services } from "../server.js";
+import { NOTE_PATH_DESCRIPTION } from "./descriptions.js";
 
 export function registerCreateNote(server: McpServer, services: Services) {
   server.registerTool(
     "create_note",
     {
       description:
-        "Create a new note in the vault. Optionally include YAML frontmatter.",
+        "Create a markdown note and any missing parent folders. Optionally writes YAML frontmatter before the note body.",
       inputSchema: {
-        path: z.string().describe("Relative path for the new note (e.g. 'Notes/new-note.md')"),
+        path: z.string().describe(NOTE_PATH_DESCRIPTION),
         content: z.string().describe("Markdown content of the note"),
         frontmatter: z
           .record(z.string(), z.unknown())
@@ -19,7 +20,7 @@ export function registerCreateNote(server: McpServer, services: Services) {
           .boolean()
           .optional()
           .default(false)
-          .describe("Allow overwriting an existing note"),
+          .describe("Set true to replace an existing note at the same path"),
       },
     },
     async ({ path, content, frontmatter, overwrite }) => {

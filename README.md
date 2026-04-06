@@ -157,6 +157,10 @@ Both modes print a ready-to-paste MCP config at the end. It looks like this:
 | `get_vault_stats` | Vault statistics and recent files |
 | `get_links` | Outgoing wikilinks and backlinks |
 
+Path model:
+- In single-vault mode, tool paths are relative to that vault root.
+- In mounted desktop mode, `list_directory` with an empty path shows the top-level vault aliases first, and other tool paths should be prefixed with one of those aliases such as `work/...` or `personal/...`.
+
 ## Commands
 
 Start with:

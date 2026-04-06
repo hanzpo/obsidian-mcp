@@ -1,15 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import { invalidateDerivedCaches, type Services } from "../server.js";
+import { NOTE_PATH_DESCRIPTION } from "./descriptions.js";
 
 export function registerEditNote(server: McpServer, services: Services) {
   server.registerTool(
     "edit_note",
     {
       description:
-        "Edit an existing note. Supports append, prepend, or find-and-replace operations.",
+        "Edit an existing note. append adds a newline plus content at the end, prepend inserts content before the body but after frontmatter, and replace swaps the first occurrence of oldContent.",
       inputSchema: {
-        path: z.string().describe("Relative path to the note"),
+        path: z.string().describe(NOTE_PATH_DESCRIPTION),
         operation: z
           .enum(["append", "prepend", "replace"])
           .describe("Type of edit operation"),
@@ -17,7 +18,7 @@ export function registerEditNote(server: McpServer, services: Services) {
         oldContent: z
           .string()
           .optional()
-          .describe("Text to find (required for replace operation)"),
+          .describe("Exact text to find for replace; required only when operation is replace"),
       },
     },
     async ({ path, operation, content, oldContent }) => {

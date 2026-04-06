@@ -85,6 +85,15 @@ describe("tools via MCP protocol", () => {
     expect(names).toContain("read_note");
     expect(names).toContain("search_notes");
     expect(names).toContain("create_note");
+
+    const listDirectory = result.tools.find((t) => t.name === "list_directory");
+    expect(listDirectory?.description).toContain("mounted vault aliases");
+    const listDirectoryPath = (
+      listDirectory?.inputSchema as {
+        properties?: { path?: { description?: string } };
+      }
+    )?.properties?.path;
+    expect(listDirectoryPath?.description).toContain("Empty path lists the MCP root");
   });
 
   it("read_note returns content and metadata", async () => {

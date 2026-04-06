@@ -1,15 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import type { Services } from "../server.js";
+import { NOTE_PATH_DESCRIPTION } from "./descriptions.js";
 
 export function registerReadNote(server: McpServer, services: Services) {
   server.registerTool(
     "read_note",
     {
       description:
-        "Read the full content of a note in the vault. Returns the raw markdown including frontmatter.",
+        "Read one note and return its raw markdown, including frontmatter, followed by size and modified time metadata.",
       inputSchema: {
-        path: z.string().describe("Relative path to the note (e.g. 'Projects/my-project.md')"),
+        path: z.string().describe(NOTE_PATH_DESCRIPTION),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

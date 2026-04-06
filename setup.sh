@@ -53,6 +53,8 @@ error()   { echo -e "\033[1;31m==>\033[0m $*" >&2; }
 BOLD="\033[1m"
 CYAN="\033[1;36m"
 GREEN="\033[1;32m"
+YELLOW="\033[1;33m"
+RED="\033[1;31m"
 RESET="\033[0m"
 
 prompt_setup_mode() {
@@ -468,6 +470,7 @@ ensure_cloudflare_login() {
 
 configure_local_tunnel() {
   load_local_tunnel_settings
+  local existing_tunnel_name="$TUNNEL_NAME"
   local existing_public_hostname="$PUBLIC_HOSTNAME"
   local existing_tunnel_uuid="$TUNNEL_UUID"
 
@@ -491,6 +494,12 @@ configure_local_tunnel() {
   if [ -z "$TUNNEL_NAME" ]; then
     error "Tunnel name is required."
     exit 1
+  fi
+
+  if [ -n "$existing_tunnel_name" ] && [ "$TUNNEL_NAME" != "$existing_tunnel_name" ]; then
+    info "Tunnel name changed from \"$existing_tunnel_name\" to \"$TUNNEL_NAME\". Creating a new Cloudflare tunnel."
+    TUNNEL_UUID=""
+    TUNNEL_CREDENTIALS_FILE=""
   fi
 
   if [ -z "$TUNNEL_UUID" ] || [ ! -f "${TUNNEL_CREDENTIALS_FILE:-}" ]; then
@@ -1103,6 +1112,21 @@ print_local_summary() {
   echo "    Sync stays managed by the Obsidian app on this device."
   echo "    Logs: $LOG_DIR"
   echo "    Stop processes: npm run stop"
+  if [ "$LOCAL_TUNNEL_MODE" = "temporary" ]; then
+    echo ""
+    echo -e "${RED}${BOLD}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!${RESET}"
+    echo -e "${RED}${BOLD}!!  THIS URL IS TEMPORARY. IF CLOUDFLARED RESTARTS OR THIS    !!${RESET}"
+    echo -e "${RED}${BOLD}!!  COMPUTER REBOOTS, EXPECT A NEW URL. FOR A MORE PERMANENT  !!${RESET}"
+    echo -e "${RED}${BOLD}!!  SETUP, USE A NAMED CLOUDFLARE HOSTNAME OR PRODUCTION MODE.!!${RESET}"
+    echo -e "${RED}${BOLD}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!${RESET}"
+  fi
+  if [ "$LOCAL_TUNNEL_MODE" = "persistent" ]; then
+    echo ""
+    echo -e "${YELLOW}${BOLD}!!  THIS SERVER ONLY RUNS IF YOU LEAVE THIS COMPUTER ON.      !!${RESET}"
+    echo -e "${YELLOW}${BOLD}!!  FOR AN ALWAYS-ON SETUP, USE PRODUCTION MODE ON A MACHINE  !!${RESET}"
+    echo -e "${YELLOW}${BOLD}!!  THAT STAYS ONLINE INDEPENDENTLY OF YOUR DESKTOP OR LAPTOP.!!${RESET}"
+    echo -e "${YELLOW}${BOLD}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!${RESET}"
+  fi
 }
 
 print_production_summary() {
