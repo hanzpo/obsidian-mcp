@@ -97,7 +97,7 @@ install_caddy() {
         error "Homebrew is required on macOS. Install from https://brew.sh"
         exit 1
       fi
-      sudo -u "${SUDO_USER:-$USER}" brew install caddy
+      sudo -u "${SUDO_USER:-$USER}" brew install caddy </dev/null
       ;;
     Linux)
       if command -v apt &>/dev/null; then
@@ -185,7 +185,7 @@ install_cloudflared() {
 
   if [ "$OS" = "Darwin" ] && command -v brew &>/dev/null; then
     info "Installing cloudflared via Homebrew..."
-    brew install cloudflared
+    brew install cloudflared </dev/null
     success "cloudflared installed."
     return
   fi
@@ -200,7 +200,7 @@ install_ob() {
   fi
 
   info "Installing obsidian-headless (syncs your vault via Obsidian Sync)..."
-  npm install -g obsidian-headless
+  npm install -g obsidian-headless </dev/null
   success "obsidian-headless installed."
 }
 
@@ -279,10 +279,10 @@ echo ""
 
 if [ -d "$INSTALL_DIR/.git" ] && command -v git &>/dev/null; then
   info "Updating existing installation at $INSTALL_DIR..."
-  git -C "$INSTALL_DIR" pull --ff-only
+  git -C "$INSTALL_DIR" pull --ff-only </dev/null
 elif [ ! -e "$INSTALL_DIR" ] && command -v git &>/dev/null; then
   info "Downloading obsidian-mcp to $INSTALL_DIR..."
-  git clone "$REPO" "$INSTALL_DIR"
+  git clone "$REPO" "$INSTALL_DIR" </dev/null
 else
   info "Downloading obsidian-mcp to $INSTALL_DIR..."
   download_repo_archive
