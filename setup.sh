@@ -114,6 +114,15 @@ configure_domain() {
 }
 
 ensure_obsidian_login() {
+  local ob_state_dir="$HOME/.obsidian-headless"
+  if [ -e "$ob_state_dir" ] && [ ! -w "$ob_state_dir" ]; then
+    error "obsidian-headless state directory is not writable: $ob_state_dir"
+    echo "    This usually means it was created by a previous sudo/root install."
+    echo "    Fix it with:"
+    echo "    sudo chown -R $(id -un):$(id -gn) \"$ob_state_dir\""
+    exit 1
+  fi
+
   info "Checking if you're logged into Obsidian..."
   if ob sync-list-remote &>/dev/null; then
     success "Already logged into Obsidian."
