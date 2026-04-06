@@ -1,12 +1,12 @@
 [Unit]
-Description=Obsidian Headless Sync
+Description=Obsidian Sync: __VAULT_NAME__
 After=network.target
 PartOf=obsidian-mcp.target
 
 [Service]
 Type=simple
 Environment=PATH=__NODE_BIN_DIR__:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=__OB_BIN__ sync --continuous --path __PROJECT_DIR__/vault
+ExecStart=__OB_BIN__ sync --continuous --path __VAULT_DIR__
 Restart=on-failure
 RestartSec=5
 

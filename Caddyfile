@@ -1,5 +1,5 @@
-{$DOMAIN:obsidian.hanzpo.com} {
-	reverse_proxy mcp:3456 {
+{$DOMAIN} {
+	reverse_proxy localhost:3456 {
 		flush_interval -1
 	}
 }

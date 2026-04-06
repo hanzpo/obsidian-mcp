@@ -7,7 +7,7 @@ Remote MCP server that gives AI agents read/write access to your Obsidian vault.
 ```
 AI Agent (Claude, Cursor, etc.)
   -- Streamable HTTP (HTTPS) -->
-    Caddy (auto-TLS) -> MCP Server (Node.js)
+    Caddy (auto-TLS) -> Node.js MCP Server
                             |
                         vault files on disk
                             |
@@ -16,12 +16,14 @@ AI Agent (Claude, Cursor, etc.)
                         Obsidian Sync <-> your devices
 ```
 
+All three services (Caddy, MCP server, vault sync) run directly on the host via systemd. No Docker required.
+
 ## Prerequisites
 
 - A server (e.g. Hetzner VPS)
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
 
-That's it. No domain needed -- the installer auto-configures one via [sslip.io](https://sslip.io). Docker, Node.js, and everything else is handled automatically.
+That's it. No domain needed -- the installer auto-configures one via [sslip.io](https://sslip.io). Node.js, Caddy, and everything else is handled automatically.
 
 ## Install
 
@@ -29,46 +31,55 @@ That's it. No domain needed -- the installer auto-configures one via [sslip.io](
 curl -fsSL https://raw.githubusercontent.com/hanzpo/obsidian-mcp/main/install.sh | sudo bash
 ```
 
-The script installs dependencies, walks you through Obsidian login and vault selection, and starts all services. At the end it prints the MCP client config to paste into Claude Desktop, Claude Code, Cursor, etc.
+The script installs dependencies, walks you through Obsidian login and vault selection, and starts all services. You can sync multiple vaults -- the setup script will ask if you want to add more. At the end it prints the MCP client config to paste into Claude Desktop, Claude Code, Cursor, etc.
 
 ## Manual Setup
 
 If you prefer to set things up yourself:
 
-1. Install obsidian-headless and log in:
+1. Clone and enter the repo:
+
+```bash
+git clone https://github.com/hanzpo/obsidian-mcp.git
+cd obsidian-mcp
+```
+
+2. Install obsidian-headless and log in:
 
 ```bash
 npm install -g obsidian-headless
 ob login
 ```
 
-2. Create the vault directory and sync:
+3. Create the vault directory and sync (each vault gets its own subfolder):
 
 ```bash
-mkdir -p vault
-ob sync-list-remote                          # find your vault name
-ob sync-setup --vault "My Vault" --path ./vault
-ob sync --path ./vault                       # initial pull
+mkdir -p vaults/my-vault
+ob sync-list-remote                                      # find your vault name
+ob sync-setup --vault "My Vault" --path ./vaults/my-vault
+ob sync --path ./vaults/my-vault                         # initial pull
 ```
 
-3. Generate API key and configure:
+Repeat for additional vaults (`vaults/work`, `vaults/notes`, etc.).
+
+4. Generate API key and configure:
 
 ```bash
 make keygen       # creates .env with a random API key
 ```
 
-Edit `.env` to set your domain:
+Edit `.env` to set your domain (or use `<your-ip>.sslip.io` if you don't have one):
 
 ```
 DOMAIN=obsidian.example.com
 API_KEY=<generated>
 ```
 
-4. Install and start:
+5. Build, install, and start (requires root for systemd):
 
 ```bash
-make install      # generates systemd units from templates, enables services
-make start
+sudo make install      # builds app, generates systemd units, enables services
+sudo make start
 ```
 
 ## Client Config
@@ -111,16 +122,62 @@ Add to your MCP client (Claude Desktop, Claude Code, Cursor, etc.):
 
 | Command | What it does |
 |---------|-------------|
-| `make start` | Start sync + MCP server + Caddy |
-| `make stop` | Stop everything |
-| `make restart` | Restart everything |
+| `make build` | Install deps and compile TypeScript |
+| `make install` | Build + generate systemd units + enable services |
+| `make start` | Start all services |
+| `make stop` | Stop all services |
+| `make restart` | Restart all services |
 | `make status` | Check service status |
 | `make logs` | Tail all logs |
-| `make logs-sync` | Tail sync logs |
+| `make logs-sync` | Tail vault sync logs |
 | `make logs-mcp` | Tail MCP server logs |
 | `make logs-caddy` | Tail Caddy logs |
 | `make keygen` | Generate/rotate API key |
-| `make update` | Pull latest, reinstall units, and restart |
+| `make update` | Pull latest, rebuild, reinstall, and restart |
+
+## Troubleshooting
+
+**Services won't start**
+
+```bash
+make status              # check which service failed
+make logs                # see what went wrong
+```
+
+**HTTPS/certificate errors**
+
+If using sslip.io, make sure ports 80 and 443 are open in your firewall. Caddy needs port 80 for the Let's Encrypt ACME challenge.
+
+```bash
+ufw allow 80/tcp
+ufw allow 443/tcp
+```
+
+**Sync not working**
+
+```bash
+make logs-sync           # check for auth or network errors
+ob sync-list-remote      # verify you're still logged in
+```
+
+If `ob login` keeps asking for credentials, your auth token may have expired. Run `ob login` again and restart:
+
+```bash
+ob login
+make restart
+```
+
+**Port 443 already in use**
+
+Another service (nginx, apache) may be using port 443. Stop it first:
+
+```bash
+ss -tlnp | grep 443     # find what's using the port
+```
+
+**Re-running setup**
+
+`setup.sh` is safe to re-run. It skips steps that are already done (vault exists, API key exists) and asks before overwriting anything.
 
 ## Development
 

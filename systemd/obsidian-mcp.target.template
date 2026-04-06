@@ -1,6 +1,6 @@
 [Unit]
 Description=Obsidian MCP Stack
-Wants=obsidian-sync.service obsidian-mcp.service
+Wants=__SYNC_SERVICES__ obsidian-mcp.service caddy.service
 
 [Install]
 WantedBy=multi-user.target

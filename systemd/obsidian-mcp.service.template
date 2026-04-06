@@ -1,14 +1,18 @@
 [Unit]
-Description=Obsidian MCP Server (Docker Compose)
-After=network.target obsidian-sync.service
-Requires=obsidian-sync.service
+Description=Obsidian MCP Server
+After=network.target __SYNC_SERVICES__
+Requires=__SYNC_SERVICES__
 PartOf=obsidian-mcp.target
 
 [Service]
 Type=simple
 WorkingDirectory=__PROJECT_DIR__
-ExecStart=__DOCKER_BIN__ compose up --build
-ExecStop=__DOCKER_BIN__ compose down
+Environment=PATH=__NODE_BIN_DIR__:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=__PROJECT_DIR__/.env
+Environment=VAULT_PATH=__PROJECT_DIR__/vaults
+Environment=PORT=3456
+Environment=HOST=0.0.0.0
+ExecStart=__NODE_BIN__ dist/index.js
 Restart=on-failure
 RestartSec=5
 

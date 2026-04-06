@@ -1,0 +1,16 @@
+[Unit]
+Description=Caddy Reverse Proxy (obsidian-mcp)
+After=network.target obsidian-mcp.service
+Wants=obsidian-mcp.service
+PartOf=obsidian-mcp.target
+
+[Service]
+Type=simple
+EnvironmentFile=__PROJECT_DIR__/.env
+ExecStart=__CADDY_BIN__ run --config __PROJECT_DIR__/Caddyfile --adapter caddyfile
+ExecReload=__CADDY_BIN__ reload --config __PROJECT_DIR__/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=obsidian-mcp.target

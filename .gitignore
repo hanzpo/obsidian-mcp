@@ -2,7 +2,7 @@ node_modules/
 dist/
 .env
 *.tgz
-vault/
+vaults/
 
 # Caddy data (if running locally)
 caddy_data/
